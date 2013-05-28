@@ -354,17 +354,33 @@ class Sequitur( object ):
 	def walk( self ):
 		return self.S.walk()
 
+	def spell_rules( self ):
+		a = []
+		for i in Rule.rules:
+			r = Rule.rules[i]
+			s = str(r)+": "
+			s += ''.join( r.walk() )
+			a.append( s )
+		return '\n'.join( a )
+
+
 	def __str__( self ):
 		a = []
 		for i in Rule.rules:
 			r = Rule.rules[i]
 			s = str(r)+": "
-			s += ', '.join([str(d) for d in r.eachsym()])
+			b = []
+			for d in r.each():
+				if isinstance( d, Rule ):
+					b.append(str(d))
+				else:
+					b.append('"'+str(d).replace('"','\\"')+'"')
+			s += ' '.join( b )
 			a.append( s )
 		return '\n'.join( a )
 
 def main():
-	log.basicConfig( level=log.WARNING )
+	log.basicConfig( level=log.ERROR )
 	try:
 		filename = sys.argv[1]
 	except:
@@ -376,9 +392,10 @@ def main():
 
 	s = Sequitur()
 	for byte in data:
-		s.append( byte )
+		s.append( chr(byte) )
 
 	print s
+	embed()
 
 if __name__ == '__main__':
 	main()
