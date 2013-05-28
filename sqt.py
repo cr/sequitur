@@ -39,6 +39,8 @@ class Index( object ):
 		# Removes detection logic from Symbol class
 		if symbol.is_guard() or symbol.next.is_guard(): return False
 
+		if isinstance( symbol.ref, Rule ): symbol.ref.addref( symbol )
+
 		seenat = self.seen( symbol )
 		if seenat and (not (seenat.next is symbol)) and (not (seenat is symbol.next)): # seen and not overlapping
 			self.forget( symbol ) # else makeunique will get even more ugly
@@ -54,9 +56,10 @@ class Index( object ):
 
 	def forget( self, symbol ):
 		"""removes symbol digram from the dictionary"""
+		if isinstance( symbol.ref, Rule ): symbol.ref.killref( symbol )
 		key = index.key( symbol )
 		try:
-			del self.dict[key]
+			if self.dict[key] == symbol: del self.dict[key]
 			log.debug( " index forgets %s" % key )
 		except KeyError:
 			# ignore (guard,foo) or (foo,guard)
@@ -195,6 +198,17 @@ class Rule( object ):
 		log.debug( " delete rule %s" % self )
 		del Rule.rules[self.id]
 
+	def killref( self, ref ):
+		log.debug( " killing reference to %s in rule %s" % (repr(ref)+str(ref),repr(self)+str(self)) )
+		try:
+			self.refs.remove( ref )
+		except KeyError:
+			log.warning( " trying to kill unregistered ref %s from %s" % (repr(ref), str(self)) )
+		if self.refcount() == 1: self.delete()
+
+	def addref( self, ref ):
+		self.refs.add( ref )
+
 	def refcount( self ):
 		return len( self.refs )
 
@@ -206,9 +220,6 @@ class Rule( object ):
 		head.nextdisconnect() # disconnect from guard
 		symbol.nextconnect( guard )
 		head.nextconnect( symbol ) # connect last to avoid operating on dangling digrams
-		if isinstance( ref, Rule ):
-			ref.refs.add( symbol )
-			print "+++++++++++++++ new rule reference for", repr(ref), str(ref), ref.refs
 		return symbol
 
 	def each( self ):
@@ -241,11 +252,6 @@ class Rule( object ):
 		a,b = digram.digram()
 		log.info( " replace digram %s,%s with rule %s" % (repr(a)+str(a), repr(b)+str(b), repr(self)+str(self)) )
 		new = digram.replace_digram( Symbol( self ) )
-		self.refs.add( new )
-		print "+++++++++++++++ new rule reference for", repr(self), str(self), self.refs
-		if isinstance( a.ref, Rule ): a.ref.killref( a )
-		if isinstance( b.ref, Rule ): b.ref.killref( b )
-		log.debug( " rule refs of %s: %s" % (repr(self)+str(self),str(self.refs)) )
 		return new
 
 	def delete( self ):
@@ -261,31 +267,8 @@ class Rule( object ):
 		next = ref.next
 		tail = self.guard.next
 		head = self.guard.prev
-
-		# TODO: debugging hack
-		#p = ref
-		#while not p.is_guard(): p = p.prev
-		#p = p.ref.ref # now is parent rule pointer
-		#print "/////////////////////////////////////"
-		#print p.dump()
-		#print index.dict
-
 		ref.replace_symbol( tail, head )
 		del Rule.rules[self.id]
-
-		#print p.dump()
-		#print index.dict
-
-
-	def killref( self, ref ):
-		log.debug( " killing reference to %s in rule %s" % (repr(ref)+str(ref),repr(self)+str(self)) )
-		#embed()
-		try:       #TODO: ##############################################uglyhack####################
-			self.refs.remove( ref )
-			print "---------------- killed rule reference for", repr(ref), str(ref), self.refs
-		except KeyError:
-			log.warning( " trying to kill unregistered ref %s" % str(ref) )
-		if self.refcount() == 1: self.delete()
 
 	@classmethod
 	def makeunique( cls, oldmatch, newmatch ):
@@ -388,7 +371,7 @@ def main():
 	try:
 		filename = sys.argv[1]
 	except:
-		print "ERROR: no filename argument given"
+		log.fatal( "ERROR: no filename argument given" )
 		sys.exit(5)
 
 	with open( filename ) as f:
