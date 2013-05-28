@@ -2,200 +2,408 @@
 
 from sqt import *
 import unittest
+import logging as log
+log.basicConfig( level=log.DEBUG )
+from IPython import embed
 
-class SymbolTest( unittest.TestCase ):
+#########################################################################################
+class Test_AA_Symbol( unittest.TestCase ):
+
+	@classmethod
+	def setUpClass( cls ):
+		log.basicConfig( level=log.ERROR )
+		log.info( " ##### BEGIN %s ##############################################" % cls )
+		# temporarily disable makeunique to prevent failure on low-level linkage
+		cls.tmpmakeunique = Rule.makeunique
+		Rule.makeunique = Rule.makeunique_disabled
+
+	@classmethod
+	def tearDownClass( cls ):
+		Rule.makeunique = cls.tmpmakeunique
+		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
-		# build a rule: guard <-> a:1 <-> b:2 <-> guard
-		self.b = Symbol( 2 )
-		self.a = Symbol( 1, next=self.b )
-		self.guard = Symbol( None, next=self.a, prev=self.b )
-		self.b.next = self.guard
-		self.b.prev = self.a
-		self.a.prev = self.guard
-		self.floatingguard = Symbol()
+		index.reset()
+		Rule.reset()
 
-	def test_symbol_instances( self ):
-		self.assertTrue( isinstance( self.guard, Symbol ) )
-		self.assertTrue( isinstance( self.a, Symbol ) )
-		self.assertTrue( isinstance( self.b, Symbol ) )
-		self.assertTrue( isinstance( self.a.next, Symbol ) )
-		self.assertTrue( isinstance( self.b.prev, Symbol ) )
-		self.assertTrue( isinstance( self.floatingguard, Symbol ) )
-
-	def test_symbol_types( self ):
-		self.assertTrue( self.guard.is_guard() )
-		self.assertFalse( self.a.is_guard() )
+	def test_symbol_instance( self ):
+		r = Rule()
+		g = Symbol( r, guard=True)
+		a = Symbol( 1 )
+		self.assertTrue( isinstance( g, Symbol ) )
+		self.assertTrue( isinstance( g.ref, Symbol ) )
+		self.assertIs( g.ref.ref, r )
+		self.assertTrue( isinstance( a, Symbol ) )
 
 	def test_symbol_values( self ):
-		self.assertEqual( self.guard.ref, None )
-		self.assertEqual( self.a.ref, 1 )
-		self.assertEqual( self.b.ref, 2 )
-		self.assertEqual( self.floatingguard.ref, None )
+		a = Symbol( 1 )
+		self.assertEqual( a.ref, 1 )
+		a.ref = 2
+		self.assertEqual( a.ref, 2 )
+
+	def test_symbol_is_guard( self ):
+		r = Rule()
+		g = Symbol( r, guard=True )
+		a = Symbol( 1 )
+		self.assertTrue( g.is_guard() )
+		self.assertTrue( r.guard.is_guard() )
+		self.assertFalse( a.is_guard() )
 
 	def test_symbol_linkage( self ):
-		self.assertIs( self.guard.next, self.a )
-		self.assertIs( self.a.next, self.b )
-		self.assertIs( self.b.next, self.guard )
-		self.assertIs( self.guard.prev, self.b )
-		self.assertIs( self.a.prev, self.guard )
-		self.assertIs( self.b.prev, self.a )
-		self.assertIs( self.guard.next.next.next, self.guard )
-		self.assertIs( self.guard.prev.prev.prev, self.guard )
-		self.assertIs( self.floatingguard.next, None )
-		self.assertIsNot( self.guard.next, self.b )
-
-	def test_symbol_pointers( self ):
-		self.assertIs( self.a.next.next.next, self.a )
-		self.assertEqual( self.a.next.next.next.ref, self.a.ref )
-		self.assertIs( self.a.prev.prev.prev, self.a )
-		self.assertEqual( self.a.prev.prev.prev.ref, self.a.ref )
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		self.assertEqual( a.next, None )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertEqual( b.prev, None )
+		b.prevconnect( a )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertIs( a.next, b )
+		self.assertIs( b.prev, a )
+		b.prevdisconnect()
+		self.assertEqual( a.next, None )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertEqual( b.prev, None )
+		a.nextconnect( b )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertIs( a.next, b )
+		self.assertIs( b.prev, a )
+		a.nextdisconnect()
+		self.assertEqual( a.next, None )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertEqual( b.prev, None )
 
 	def test_symbol_floating_exception( self ):
-		with self.assertRaises( AttributeError ): self.floatingguard.next.next
-		with self.assertRaises( AttributeError ): self.floatingguard.prev.prev
+		a = Symbol( 1 )
+		with self.assertRaises( AttributeError ): a.next.next
+		with self.assertRaises( AttributeError ): a.prev.prev
 
 	def test_symbol_digrams( self ):
-		self.assertEqual( self.guard.digram(), (None,1) ) 
-		self.assertEqual( self.a.digram(), (1,2) ) 
-		self.assertEqual( self.b.digram(), (2,None) )
-		with self.assertRaises( AttributeError ): self.floatingguard.digram()
+		g = Symbol( Rule(), guard=True )
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		g.nextconnect( a )
+		a.nextconnect( b )
+		b.nextconnect( g )
+		self.assertEqual( g.digram(), (None,a) )
+		self.assertEqual( a.digram(), (a,b) )
+		self.assertEqual( b.digram(), (b,None) )
+		self.assertEqual( g.refdigram(), (None,1) )
+		self.assertEqual( a.refdigram(), (1,2) )
 
 	def test_symbol_replace_digram( self ):
-		# guard <-> floatingnonterminal <-> guard
-		self.a.replace_digram( self.floatingguard )
-		self.assertIs( self.guard.next, self.floatingguard )
-		self.assertIs( self.guard.next.next, self.guard )
-		self.assertIsNot( self.guard.prev, self.floatingguard )
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		c = Symbol( 3 )
+		d = Symbol( 4 )
+		e = Symbol( 5 )
+		a.nextconnect( b )
+		b.nextconnect( c )
+		c.nextconnect( d )
+		ret = b.replace_digram( e )			
+		self.assertIs( a.next, e )
+		self.assertIs( e.next, d )
+		self.assertIs( d.prev, e )
+		self.assertIs( e.prev, a )
+		self.assertEqual( b.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertEqual( c.prev, None )
+		self.assertEqual( c.next, None )
+		self.assertIs( ret, e )
 
+	def test_symbol_replace_symbol( self ):
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		c = Symbol( 3 )
+		d = Symbol( 4 )
+		e = Symbol( 5 )
+		f = Symbol( 6 )
+		a.nextconnect( b )
+		b.nextconnect( c )
+		d.nextconnect( e )
+		e.nextconnect( f )
+		b.replace_symbol( d, e )			
+		self.assertIs( a.next, d )
+		self.assertIs( d.next, e )
+		self.assertIs( e.next, c )
+		self.assertIs( c.prev, e )
+		self.assertIs( e.prev, d )
+		self.assertIs( d.prev, a )
+		self.assertEqual( a.prev, None )
+		self.assertEqual( b.prev, None )
+		self.assertEqual( b.next, None )
+		self.assertEqual( c.next, None )
+		self.assertEqual( f.prev, None )
+		self.assertEqual( f.next, None )
 
-class RuleTest( unittest.TestCase ):
+#########################################################################################
+class Test_BA_Rule( unittest.TestCase ):
+
+	@classmethod
+	def setUpClass( cls ):
+		log.basicConfig( level=log.ERROR )
+		log.info( " ##### BEGIN %s ##############################################" % cls )
+		# temporarily disable makeunique to prevent failure on low-level linkage
+		cls.tmpmakeunique = Rule.makeunique
+		Rule.makeunique = Rule.makeunique_disabled
+
+	@classmethod
+	def tearDownClass( cls ):
+		Rule.makeunique = cls.tmpmakeunique
+		Rule.reset()
+		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
-		# ruleA <- guard <-> 1 <-> 2 -> guard
-		self.ruleA = Rule()
-		self.a = Symbol(1)
-		self.b = Symbol(2)
-		self.ruleA.append( self.a )
-		self.ruleA.append( self.b )
+		index.reset()
+		Rule.reset()
 
-		# ruleB <- guard <-> 3 <-> ruleA <-> 4 <-> ruleA <-> 5 -> guard
-		self.ruleB = Rule()
-		self.ruleB.append( 3 )
-		self.ruleB.append( 1 )
-		self.ruleB.append( 2 )
-		self.ruleB.append( 4 )
-		self.ruleB.append( 1 )
-		self.ruleB.append( 2 )
+	def test_rule_instance( self ):
+		r = Rule()
+		self.assertTrue( isinstance( r, Rule ) )
+		self.assertTrue( r.guard.is_guard() )
+		self.assertIs( r.guard.ref.ref, r )
+		self.assertIs( r.guard.next, r.guard )
+		self.assertIs( r.guard.prev, r.guard )
+		self.assertEqual( r.refcount(), 0 )
 
-		instanceA = self.ruleB.guard.next.next
-		instanceB = self.ruleB.guard.next.next.next.next.next
-		seenat = self.ruleA
-		seenat.replace_digram( instanceA )
-		seenat.replace_digram( instanceB )
+	def test_rule_append( self ):
+		r = Rule()
+		a = r.append( 1 )
+		self.assertTrue( r.guard.is_guard() )
+		self.assertTrue( isinstance( a, Symbol ) )
+		self.assertIs( r.guard.next, a )
+		self.assertIs( r.guard.next.next, r.guard )
+		self.assertIs( r.guard.prev, a )
+		self.assertIs( r.guard.prev.prev, r.guard )
+		b = r.append( 2 )
+		self.assertIs( r.guard.next, a )
+		self.assertIs( r.guard.next.next, b )
+		self.assertIs( r.guard.next.next.next, r.guard )
+		self.assertIs( r.guard.prev, b )
+		self.assertIs( r.guard.prev.prev, a )
+		self.assertIs( r.guard.prev.prev.prev, r.guard )
 
-		self.ruleB.append( 5 )
+	def test_rule_each( self ):
+		r = Rule()
+		a = r.append( 1 )
+		b = r.append( 2 )
+		self.assertEqual( [ref for ref in r.each()], [1,2] )
+		self.assertEqual( [ref for ref in r.eachsym()], [a,b] )
 
-	def __test_rule_print( self ):
-		print self.ruleA.dump()
-		print self.ruleA.walk()
-		print self.ruleB.dump()
-		print self.ruleB.walk()
+	def test_rule_walkdump( self ):
+		r = Rule()
+		r.append( 1 )
+		r.append( 2 )
+		s = Rule()
+		s.append( 3 )
+		s.append( r )
+		s.append( 4 )
+		self.assertEqual( r.dump(), [1, 2] )
+		self.assertEqual( r.walk(), [1, 2] )
+		self.assertEqual( s.dump(), [3, r, 4] )
+		self.assertEqual( s.walk(), [3, 1, 2, 4] )
 
-		print "ruleA nexts:", repr(self.ruleA.guard), repr(self.ruleA.guard.next), repr(self.ruleA.guard.next.next), repr(self.ruleA.guard.next.next.next)
-		print "ruleA head:", repr(self.ruleA.head)
-
-	def test_rule_instances( self ):
-		self.assertTrue( isinstance( self.ruleA, Rule ) )
-		self.assertTrue( isinstance( self.ruleB, Rule ) )
-		self.assertTrue( self.ruleA.guard.is_guard() )
-		self.assertFalse( self.ruleA.guard.next.is_guard() )
-		self.assertTrue( self.ruleB.guard.is_guard() )
-
-	def test_rule_linkage( self ):
-		self.assertIs( self.ruleA.guard.next, self.a )
-		self.assertIs( self.ruleA.guard.next.prev, self.ruleA.guard )
-		self.assertIs( self.ruleA.guard.next.next, self.b )
-		self.assertIs( self.ruleA.guard.next.next.prev, self.a )
-		self.assertIs( self.ruleA.guard.next.next.prev.prev, self.ruleA.guard )
-		self.assertIs( self.ruleA.guard.next.next.next, self.ruleA.guard )
-		self.assertIs( self.ruleA.guard.next.next, self.ruleA.head )
-		self.assertIs( self.ruleA.guard.prev, self.ruleA )
-
-		self.assertIs( self.ruleB.guard.next.prev, self.ruleB.guard )
-		self.assertIs( self.ruleB.guard.next.next.prev, self.ruleB.guard.next )
-		self.assertIs( self.ruleB.guard.next.next.next.prev, self.ruleB.guard.next.next )
-		self.assertIs( self.ruleB.guard.next.next.next.next.prev, self.ruleB.guard.next.next.next )
-		self.assertIs( self.ruleB.guard.next.next.next.next.next.prev, self.ruleB.guard.next.next.next.next )
-		self.assertIs( self.ruleB.guard.next.next.next.next.next.next, self.ruleB.guard )
-		self.assertIs( self.ruleB.guard.next.next.ref, self.ruleA )
-		self.assertIs( self.ruleB.guard.next.next.next.next.ref, self.ruleA )
-		self.assertIs( self.ruleB.guard.next.next.next.next.next, self.ruleB.head )
-		self.assertIs( self.ruleB.guard.prev, self.ruleB )
-
-	def test_rule_output( self ):
-		self.assertEqual( self.ruleA.dump(), [1, 2] )
-		self.assertEqual( self.ruleA.walk(), [1, 2] )
-		self.assertEqual( self.ruleB.dump()[0], 3 )
-		self.assertTrue( isinstance( self.ruleB.dump()[1], Rule) )
-		self.assertEqual( self.ruleB.dump()[2], 4 )
-		self.assertEqual( self.ruleB.walk(), [3, 1, 2, 4, 1, 2, 5] )
+	def test_rule_replace_digram( self ):
+		r = Rule()
+		r.append( 1 )
+		r.append( 2 )
+		s = Rule()
+		a = s.append( 3 )
+		b = s.append( 4 )
+		c = s.append( 5 )
+		d = s.append( 6 )
+		ret = r.replace_digram( b )
+		self.assertEqual( r.walk(), [1, 2] )
+		self.assertEqual( s.dump(), [3, r, 6] )
+		self.assertEqual( s.walk(), [3, 1, 2, 6] )
+		self.assertIs( s.guard.prev, d )
+		self.assertIs( s.guard.prev.prev.ref, r )
+		self.assertIs( s.guard.prev.prev.prev, a )
+		self.assertIs( s.guard.prev.prev.prev.prev, s.guard )
+		self.assertEqual( r.refcount(), 1 )
+		self.assertIs( ret, a.next )
+		self.assertTrue( ret in r.refs )
 
 	def test_rule_delete( self ):
-		a = Rule()
-		a.append( 1 )
-		a.append( 2 )
-		b = Rule()
-		b.append( 3 )
-		b.append( 1 )
-		b.append( 2 )
-		a.replace_digram( b.guard.next.next )
-		self.assertEqual( a.refcount(), 1 )
-		self.assertEqual( b.refcount(), 0 )
-		self.assertEqual( b.dump(), [3,a] )
-		a.delete()
-		self.assertEqual( b.dump(), [3,1,2] )
+		r = Rule()
+		r.append( 1 )
+		r.append( 2 )
+		s = Rule()
+		a = s.append( 3 )
+		b = s.append( 1 )
+		c = s.append( 2 )
+		ret = r.replace_digram( b )
+		self.assertEqual( r.refcount(), 1 )
+		self.assertTrue( ret in r.refs )
+		r.delete()
+		self.assertEqual( r.refcount(), 0 )
+		self.assertEqual( s.dump(), [3,1,2] )
 
+#########################################################################################
+class Test_CA_Index( unittest.TestCase ):
 
-class IndexText( unittest.TestCase ):
+	@classmethod
+	def setUpClass( cls ):
+		log.basicConfig( level=log.DEBUG )
+		log.info( " ##### BEGIN %s ##############################################" % cls )
+
+	@classmethod
+	def tearDownClass( cls ):
+		index.reset()
+		Rule.reset()
+		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
-		self.index = Index()
-		# rule: guard -> 1 -> 2 -> 2 -> 2 -> guard
-		self.rule = Rule( 0 )
-		self.rule.append( 1 )
-		self.rule.append( 2 )
-		self.rule.append( 2 )
-		self.rule.append( 2 )
-		
-	def test_index_setup( self ):
-		self.assertTrue( isinstance( self.index, Index ) )
-		self.assertTrue( isinstance( self.rule, Rule ) )
-		self.assertEqual( self.rule.id, 0 )
-		self.assertEqual( self.rule.guard.next.ref, 1 )
-		self.assertEqual( self.rule.guard.next.next.ref, 2 )
-		self.assertIs( self.rule.guard.next.next.next.next.next, self.rule.guard )
+		index.reset()
+		Rule.reset()
+
+	def test_index_instance( self ):
+		self.assertTrue( isinstance( index, Index ) )
 
 	def test_index_keys( self ):
 		# TODO: test with more datatypes
 		# TODO: test with rule references
-		self.assertEqual( Index.key( self.rule.guard.next ), "1"+Index.key_separator+"2" )
-		with self.assertRaises( AttributeError ): Index.key( Symbol() )
+		index.reset()
+		r = Rule()
+		a = r.append( 1 )
+		b = r.append( 2 )
+		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
+		index.reset( keyseparator="foo" )
+		self.assertEqual( index.key( a ), "1foo2" )
+		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
+		index.reset()
+		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
+		self.assertEqual( index.key( b ), "2"+index.keyseparator+"None" )
+		self.assertEqual( index.key( r.guard ), "None"+index.keyseparator+"1" )
 
 	def test_index_learning( self ):
-		symbol = self.rule.guard.next
-		self.assertFalse( self.index.seen( symbol ) )
-		self.index.learn( symbol, callbackifseen=(lambda *args, **kw: False) )
-		self.assertTrue( self.index.seen( symbol ) )
-		self.assertIs( self.index.seen( symbol ), symbol )
+		# temporarily disable makeunique to prevent failure on low-level linkage
+		tmpmakeunique = Rule.makeunique
+		Rule.makeunique = Rule.makeunique_disabled
+		# calls to learn() and forget() are implicit through symbol linkage/unlinkage
+		unlearned = Symbol( 1 )
+		unlearnedb = Symbol( 2 )
+		unlearned.next = unlearnedb
+		unlearned.prev = unlearned
+		self.assertFalse( index.seen( unlearned ) )
+		a = Symbol( 1 )
+		self.assertFalse( index.seen( unlearned ) )
+		b = Symbol( 2 )
+		self.assertFalse( index.seen( unlearned ) )
+		a.nextconnect( b )
+		self.assertTrue( index.seen( unlearned ) )
+		self.assertIs( index.seen( unlearned ), a )
+		self.assertTrue( index.seen( a ) )
+		with self.assertRaises( AttributeError ): Symbol.index.seen( b ) # b.next==None
+		a.nextdisconnect()
+		self.assertFalse( index.seen( unlearned ) )
 
+		r = Rule()
+		c = r.append( 1 )
+		self.assertFalse( index.seen( c ) )
+		self.assertFalse( index.seen( c.prev ) ) # c.prev is guard
+		d = r.append( 1 )
+		self.assertFalse( index.seen( d ) )
+		self.assertFalse( index.seen( unlearned ) )
+		e = r.append( 2 )
+		self.assertTrue( index.seen( unlearned ) )
 
-class SequiturTest( unittest.TestCase ):
+		Rule.makeunique = tmpmakeunique
 
-	def setUp( self ):
+	def test_index_makeunique( self ):
+		r = Rule()
+		a = r.append( 1 )
+		b = r.append( 2 )
+		s = Rule()
+		c = s.append( 3 )
+		d = s.append( 1 )
+		e = s.append( 2 )
+		f = s.append( 4 )
+		self.assertEqual( s.dump(), [3,r,4] )
+		self.assertEqual( s.walk(), [3,1,2,4] )
+
+	def test_index_killref( self ):
+		r = Rule()
+		r.append( 1 )
+		r.append( 2 )
+		r.append( 3 )
+		r.append( 4 )
+		r.append( 2 )
+		print_state()
+		self.assertEqual( len(Rule.rules), 1 )
+		self.assertIs( Rule.rules[0], r )
+		self.assertEqual( r.walk(), [1,2,3,4,2] )
+		print "1#######################"
+		print_state()
+		r.append( 3 )
+		self.assertEqual( len(Rule.rules), 2 )
+		s = Rule.rules[1]
+		self.assertEqual( r.dump(), [1,s,4,s] )
+		self.assertEqual( s.dump(), [2,3] )
+		self.assertEqual( r.walk(), [1,2,3,4,2,3] )
+		self.assertEqual( len(s.refs), 2 )
+		self.assertTrue( r.guard.next.next in s.refs )
+		self.assertTrue( r.guard.next.next.next.next in s.refs )
+		print "2#######################"
+		print_state()
+		r.append( 1 )
+		self.assertEqual( r.dump(), [1,s,4,s,1] )
+		self.assertEqual( s.dump(), [2,3] )
+		self.assertEqual( r.walk(), [1,2,3,4,2,3,1] )
+		self.assertEqual( len(s.refs), 2 )
+		self.assertTrue( r.guard.next.next in s.refs )
+		self.assertTrue( r.guard.next.next.next.next in s.refs )
+		print "3#######################"
+		print_state()
+		r.append( 2 )
+		self.assertEqual( r.dump(), [1,s,4,s,1,2] )
+		self.assertEqual( s.dump(), [2,3] )
+		self.assertEqual( r.walk(), [1,2,3,4,2,3,1,2] )
+		self.assertEqual( len(s.refs), 2 )
+		self.assertTrue( r.guard.next.next in s.refs )
+		self.assertTrue( r.guard.next.next.next.next in s.refs )
+		print "4#######################"
+		print_state()
+		r.append( 3 )
+		print_state()
+		self.assertEqual( len(Rule.rules), 2 )
+		self.assertFalse( 1 in Rule.rules )
+		t = Rule.rules[2]
+		print repr(r), r, r.dump()
+		print repr(t), t, t.dump(), t.refs
+		self.assertEqual( r.dump(), [t,4,2,3,t] )
+		#self.assertEqual( t.dump(), [1,2,3] )
+		self.assertTrue( r.guard.next in t.refs )
+		self.assertTrue( r.guard.next.next.next.next.next in t.refs )
+		print repr(r), r, r.dump()
+		print repr(t), t, t.dump(), t.refs
+		print "5#######################"
+		print_state()
+		r.append( 4 )
+		print r.dump()
+
+#########################################################################################
+class Test_DA_Sequitur( unittest.TestCase ):
+
+	@classmethod
+	def setUpClass( cls ):
+		log.basicConfig( level=log.ERROR )
+		log.info( " ##### BEGIN %s ##############################################" % cls )
+
+	@classmethod
+	def tearDownClass( cls ):
+		index.reset()
+		Rule.reset()
+		log.info( " ##### END %s ##############" % cls )
+
+	def __setUp( self ):
 		self.s = Sequitur()
 
-	def test_sequitur_run( self ):
+	def __test_sequitur_run( self ):
 		print
 		data = list("abcdbcabcd")
 		for x in data:
@@ -203,7 +411,7 @@ class SequiturTest( unittest.TestCase ):
 			print self.s
 		print self.s.walk()
 
-
+#########################################################################################
 if __name__ == '__main__':
     unittest.main()
 
