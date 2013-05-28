@@ -39,14 +39,9 @@ class Index( object ):
 		# Removes detection logic from Symbol class
 		if symbol.is_guard() or symbol.next.is_guard(): return False
 
-		if isinstance( symbol.ref, Rule ): symbol.ref.addref( symbol )
-
 		seenat = self.seen( symbol )
 		if seenat and (not (seenat.next is symbol)) and (not (seenat is symbol.next)): # seen and not overlapping
-			self.forget( symbol ) # else makeunique will get even more ugly
-			tolearn = Rule.makeunique( seenat, symbol )
-			if tolearn:
-				self.learn( tolearn.guard.next ) #because makeunique probably made index forget
+			Rule.makeunique( seenat, symbol )
 			return False
 		else:
 			key = self.key( symbol )
@@ -56,7 +51,6 @@ class Index( object ):
 
 	def forget( self, symbol ):
 		"""removes symbol digram from the dictionary"""
-		if isinstance( symbol.ref, Rule ): symbol.ref.killref( symbol )
 		key = index.key( symbol )
 		try:
 			if self.dict[key] == symbol: del self.dict[key]
@@ -82,7 +76,12 @@ class Symbol( object ):
 			self.ref = reference
 		self.prev = None
 		self.next = None
+		if isinstance( self.ref, Rule ): self.ref.addref( self )
 		log.debug( " new Symbol %s with reference to %s" % (repr(self), repr(reference)) )
+
+	def delete( self ):
+		log.debug( " Symbol %s is being deleted" % repr(self) )
+		if isinstance( self.ref, Rule ): self.ref.killref( self )
 
 	def is_guard( self ):
 		return isinstance( self.ref, Symbol )
@@ -142,6 +141,8 @@ class Symbol( object ):
 		a.nextdisconnect()
 		next.prevconnect( newsymbol )
 		prev.nextconnect( newsymbol ) # connect last to avoid handling dangling digrams
+		a.delete()
+		b.delete()
 		return newsymbol
 
 	def replace_symbol( self, tail, head ):
@@ -155,6 +156,7 @@ class Symbol( object ):
 		self.nextdisconnect()
 		next.prevconnect( head )
 		prev.nextconnect( tail ) # connect last to avoig dangling digrams
+		self.delete()
 
 	def debugstring( self ):
 		return repr(self) + ":" + str( self.ref )
@@ -184,13 +186,13 @@ class Rule( object ):
 		# CAVE: invalidates all Index keys refering to rules; implies Index reset
 
 	def __init__( self ):
+		self.refs = set() # must be here before guard creation
 		self.guard = Symbol( self, guard=True )
 		self.guard.next = self.guard
 		self.guard.prev = self.guard
 		self.id = Rule.nextid
 		Rule.nextid += 1
 		Rule.rules[self.id] = self
-		self.refs = set()
 		log.debug( " Rule.nextid=%s Rule.rules=%s" % (Rule.nextid, Rule.rules) )
 		log.info( " new rule %s" % (self) )
 
@@ -205,12 +207,11 @@ class Rule( object ):
 		except KeyError:
 			log.warning( " trying to kill unregistered ref %s from %s" % (repr(ref), str(self)) )
 		if self.refcount() == 1: self.delete()
-
 	def addref( self, ref ):
 		self.refs.add( ref )
 
 	def refcount( self ):
-		return len( self.refs )
+		return len( self.refs ) - 1 # mind that one ref is always guard node
 
 	def append( self, ref ):
 		symbol = Symbol( ref )
@@ -255,8 +256,17 @@ class Rule( object ):
 		return new
 
 	def delete( self ):
-		assert len( self.refs ) == 1
-		ref = self.refs.pop()
+		assert len( self.refs ) == 2 # one is the rule guard subsymbol
+
+		# TODO: ugly, ugly hack
+		a,b = self.refs
+		if a.next == None:
+			self.refs.remove( b )
+			ref = b
+		else:
+			self.refs.remove( a )
+			ref = a
+
 		log.info( " delete last rule reference at %s for rule %s" % (repr(ref)+str(ref),repr(self)+str(self)) )
 		#embed() 
 		# restore rule in place
@@ -282,8 +292,9 @@ class Rule( object ):
 			# create a new rule of the old digram
 			log.debug( " create new rule from %s and %s" % (oldmatch, oldmatch.next) )
 
-			# assuming that oldmatch is aready removed from the index
-			# else recursion on second append
+			# TODO: this workaround feels wrong:
+			# manually remove oldmatch from index. 
+			index.forget( oldmatch )
 			newrule = Rule()
 			newrule.append( oldmatch.ref ) # .ref ensures that symbol copy is used for rule
 			newrule.append( oldmatch.next.ref )
@@ -321,7 +332,8 @@ def print_state():
 			print "   ", repr(d), "  ", str(d)
 		print "      References:"
 		for ref in r.refs:
-			print "          ", repr(ref), str(ref)
+			if ref.next != None: # that guard node hack...
+				print "       ", repr(ref), str(ref)
 	print "::::::::::::::::: Index ::::::::::::::::::"
 	for key in index.dict:
 		s = index.dict[key]
@@ -331,40 +343,25 @@ def print_state():
 class Sequitur( object ):
 
 	def __init__( self ):
-		self.rules = {}
-		self.nextruleid = 0
+		index.reset()
+		Rule.reset()
 		# create the main sequence rule
-		S = self.createrule()
-		assert S.id == 0
-
-	def createrule( self ):
-		rid = self.nextruleid
-		rule = Rule( rid )
-		self.rules[rid] = rule
-		self.nextruleid += 1
-		return rule
+		self.S = Rule()
 
 	def append( self, symbol ):
-		self.push( 0, Symbol( symbol ) )
-
-	def push( self, ruleid, symbol ):
-		digram = self.rules[ruleid].head
-		rule = self.rules[ruleid]
-		rule.append( symbol )
-		if digram.is_guard(): return # was empty rule
-		index.learn( digram, callbackifseen=self.makeunique )
+		self.S.append( symbol )
 
 	def walk( self ):
-		return self.rules[0].walk()
+		return self.S.walk()
 
 	def __str__( self ):
-		s = "### Rules ###" 
-		for rid in self.rules:
-			s += '\n' + self.rules[rid].prettystring()
-		s += "\n### Index ###"
-		s += '\n' + str( index )
-		s += "\n#############"
-		return s
+		a = []
+		for i in Rule.rules:
+			r = Rule.rules[i]
+			s = str(r)+": "
+			s += ', '.join([str(d) for d in r.eachsym()])
+			a.append( s )
+		return '\n'.join( a )
 
 def main():
 	log.basicConfig( level=log.WARNING )
