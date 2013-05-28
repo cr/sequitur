@@ -8,12 +8,14 @@ You might want to try implementing it yourself in your favorite programming lang
 
 Currently it likes text files as input. The main loop feeds the main rule from the file character by character.
 
-```$ ./sqt.py sqt.py
+```
+$ ./sqt.py sqt.py
 ```
 
 It drops you in an ipython embed() session with the finished Sequitur object in s. Try:
 
-```print s.spell_rules()
+```
+print s.spell_rules()
 ```
 
 ## References
