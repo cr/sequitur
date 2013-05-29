@@ -3,7 +3,7 @@
 from sqt import *
 import unittest
 import logging as log
-log.basicConfig( level=log.ERROR )
+log.basicConfig( level=log.WARNING )
 from IPython import embed
 
 #########################################################################################
@@ -218,21 +218,29 @@ class Test_BA_Rule( unittest.TestCase ):
 		r.append( 1 )
 		r.append( 2 )
 		s = Rule()
-		a = s.append( 3 )
-		b = s.append( 4 )
-		c = s.append( 5 )
-		d = s.append( 6 )
-		ret = r.replace_digram( b )
-		self.assertEqual( r.walk(), [1, 2] )
-		self.assertEqual( s.dump(), [3, r, 6] )
-		self.assertEqual( s.walk(), [3, 1, 2, 6] )
-		self.assertIs( s.guard.prev, d )
-		self.assertIs( s.guard.prev.prev.ref, r )
-		self.assertIs( s.guard.prev.prev.prev, a )
-		self.assertIs( s.guard.prev.prev.prev.prev, s.guard )
-		self.assertEqual( r.refcount(), 1 )
-		self.assertIs( ret, a.next )
-		self.assertTrue( ret in r.refs )
+		a = s.append( 1 )
+		b = s.append( 2 )
+		c = s.append( 1 )
+		d = s.append( 2 )
+		e = s.append( 3 )
+		f = s.append( 11 )
+		g = s.append( 22 )
+		anew = r.replace_digram( a )
+		self.assertEqual( s.dump(), [r, 1, 2, 3, 11, 22] )
+		cnew = r.replace_digram( c )
+		self.assertEqual( s.dump(), [r, r, 3, 11, 22] )
+		fnew = r.replace_digram( f )
+		self.assertIs( anew, e.prev.prev )
+		self.assertIs( cnew, e.prev )
+		self.assertIs( fnew, e.next )
+		self.assertEqual( s.dump(), [r, r, 3, r] )
+		self.assertEqual( s.walk(), [1, 2, 1, 2, 3, 1, 2] )
+		self.assertEqual( r.dump(), [1, 2] )
+		self.assertEqual( r.refcount(), 3 )
+		self.assertTrue( anew in r.refs )
+		self.assertTrue( cnew in r.refs )
+		self.assertTrue( fnew in r.refs )
+		with self.assertRaises( SymbolError ): r.replace_digram( fnew )
 
 	def test_rule_replace_lastref( self ):
 		r = Rule()
@@ -319,6 +327,8 @@ class Test_CA_Index( unittest.TestCase ):
 
 		Rule.makeunique = tmpmakeunique
 
+	# This test should be in TestRule, but the class has the
+	# Rule.makeunique trigger globally disabled
 	def test_index_makeunique( self ):
 		r = Rule()
 		a = r.append( 1 )
@@ -332,6 +342,7 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( s.walk(), [3,1,2,4] )
 
 	def test_index_killref( self ):
+		#TODO: simplify to the point
 		r = Rule()
 		r.append( 1 )
 		r.append( 2 )

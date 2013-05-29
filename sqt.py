@@ -242,19 +242,16 @@ class Rule( object ):
 		self.refs.add( symbol )
 
 	def killref( self, symbol ):
-		log.debug( " removing rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+		log.debug( " killing rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
 		try:
 			self.refs.remove( symbol )
 		except KeyError:
-			log.warning( " killref for unknown reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
-			raise RuleError #TODO: nice message
+			raise RuleError( "killref for unknown reference to %s by %s" % (repr(self), repr(symbol)) )
 		# enforce rule utility
 		if self.refcount() == 1:
 			self.replace_lastref() # beware of the recursion
-			if self.refcount() == 0:
-				self.delete()
-			else:
-				raise RuleError #TODO: nice message
+		elif self.refcount() == 0:
+			self.delete()
 
 	def each( self ):
 		symbol = self.guard.next
@@ -313,7 +310,7 @@ class Rule( object ):
 		"""
 		if len( self.refs ) != 1:
 			raise RuleError #TODO: nice message
-		lastref = self.refs.copy().pop() # will be killrefed when final symbol is deleted
+		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
 		log.debug( " deleting rule %s with last reference %s" % (self.debugstr(), lastref.debugstr()) )
 		# forget broken digrams
 		index.forget( lastref.prev ) # lastref.prev might be guard
@@ -404,7 +401,6 @@ class Sequitur( object ):
 			s += ''.join( r.walk() )
 			a.append( s )
 		return '\n'.join( a )
-
 
 	def __str__( self ):
 		a = []
