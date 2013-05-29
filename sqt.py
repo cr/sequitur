@@ -51,13 +51,14 @@ class Index( object ):
 
 	def forget( self, symbol ):
 		"""removes symbol digram from the dictionary"""
+		if symbol.is_guard() or symbol.next.is_guard(): return False
 		key = index.key( symbol )
 		try:
 			if self.dict[key] == symbol: del self.dict[key]
 			log.debug( " index forgets %s" % key )
 		except KeyError:
-			# ignore (guard,foo) or (foo,guard)
-			pass
+			raise # could pass to handle guards
+		return True
 
 	def __str__( self ):
 		return ( self.dict )
@@ -65,105 +66,118 @@ class Index( object ):
 # Global instance of the Index
 index = Index()
 
+class SymbolError( Exception ):
+	pass
+
 class Symbol( object ):
 	"""A helper class to faciliate pointer arithmetics"""
 
-	def __init__( self, reference, guard=False ):
-		if guard:
-			assert isinstance( reference, Rule )
-			self.ref = Symbol( reference )
-		else:
-			self.ref = reference
-		self.prev = None
-		self.next = None
+	def __init__( self, reference ):
+		self.ref = reference
+		self.prev = self
+		self.next = self
 		if isinstance( self.ref, Rule ): self.ref.addref( self )
-		log.debug( " new Symbol %s with reference to %s" % (repr(self), repr(reference)) )
+		log.debug( " new symbol %s with reference to %s" % (self.debugstr(), str(reference)) )
 
 	def delete( self ):
-		log.debug( " Symbol %s is being deleted" % repr(self) )
+		log.debug( " symbol %s is being deleted" % repr(self) )
+		if self.is_connected():
+			raise SymbolError( "connected %s marked for deletion" % repr(self) )
 		if isinstance( self.ref, Rule ): self.ref.killref( self )
+		del self.ref
+		del self.next
+		del self.prev
+
+	def is_connected( self ):
+		if self.next is self:
+			if self.prev is self:
+				return False
+			else:
+				raise SymbolError( "%s has broken prev/next connection" % repr(self) )
+		else:
+			if self.prev is not self:
+				return True
+			else:
+				raise SymbolError( "%s has broken next/prev connection" % repr(self) )
 
 	def is_guard( self ):
 		return isinstance( self.ref, Symbol )
 
-	def prevconnect( self, prev ):
-		#log.debug( " prevconnect %s,%s" % (repr(prev)+str(prev),repr(self)+str(self)) )
-		self.prev = prev
-		prev.next = self
-		index.learn( prev )
-
-	def nextconnect( self, next ):
-		#log.debug( " nextconnect %s,%s" % (repr(self)+str(self),repr(next)+str(next)) )
+	def insertnext( self, next ):
+		log.debug( " inserting %s right of %s" % (next.debugstr(),self.debugstr()) )
+		if next.is_connected():
+			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(next)) )
+		oldnext = self.next
+		oldnext.prev = next
+		next.next = oldnext
 		self.next = next
 		next.prev = self
-		index.learn( self )
-
-	def prevdisconnect( self ):
-		#log.debug( " prevdisconnect %s,%s" % (repr(self.prev)+str(self.prev),repr(self)+str(self)) )
-		index.forget( self.prev )
-		#if self.prev == None: return
-		del self.prev.next
-		self.prev.next = None
-		del self.prev
-		self.prev = None
-
-	def nextdisconnect( self ):
-		#log.debug( " nextdisconnect %s,%s" % (repr(self)+str(self),repr(self.next)+str(self.next)) )
-		index.forget( self )
-		#if self.next == None: return
-		del self.next.prev
-		self.next.prev = None
-		del self.next
-		self.next = None
 
 	def digram( self ):
-		if self.is_guard(): a = None
-		else: a = self
-		if self.next.is_guard(): b = None
-		else: b = self.next
-		return a, b
+		if self.next.is_guard():
+			raise SymbolError( "digram call to guard node %s" % repr(self) )
+		if self.is_guard():
+			raise SymbolError( "digram call to guard symbol %s" % repr(self) )
+		if not self.is_connected():
+			raise SymbolError( "digram call unconnected symbol %s" % repr(self) )
+		return self, self.next
 
 	def refdigram( self ):
-		if self.is_guard(): a = None
-		else: a = self.ref
-		if self.next == None or self.next.is_guard(): b = None
-		else: b = self.next.ref
-		return a, b
+		tail,head = self.digram()
+		return tail.ref, head.ref
 
-	def replace_digram( self, newsymbol ):
-		assert isinstance( newsymbol, Symbol )
-		prev = self.prev
-		a,b = self.digram()
-		next = b.next
-		assert not b.is_guard()
-		a.prevdisconnect()
-		b.nextdisconnect()
-		a.nextdisconnect()
-		next.prevconnect( newsymbol )
-		prev.nextconnect( newsymbol ) # connect last to avoid handling dangling digrams
-		a.delete()
-		b.delete()
+	def replace_digram( self, rule ):
+		"""replaces this digram with newly-formed symbol referencing rule.
+		   returns the newly-formed symbol.
+		""" 
+		newsymbol = Symbol( rule )
+		tail,head = self.digram()
+		prev = tail.prev
+		next = head.next
+		# new connections
+		next.prev = newsymbol
+		newsymbol.next = next
+		newsymbol.prev = prev
+		prev.next = newsymbol	
+		# disconnect tail and head
+		tail.prev = tail
+		tail.next = tail
+		tail.delete()
+		head.prev = head
+		head.next = head
+		head.delete()
 		return newsymbol
 
-	def replace_symbol( self, tail, head ):
-		assert isinstance( tail, Symbol )
-		assert isinstance( head, Symbol )
+	def replace_symbol( self, rule ):
+		"""replaces this symbol by content of rule.
+		   the rule is left properly emptied-out.
+		   returns tail and head of what was replaced.
+		   triggers deletion of this symbol.
+		"""
 		prev = self.prev
 		next = self.next
-		if tail.prev != None: tail.prevdisconnect()
-		if head.next != None: head.nextdisconnect()
-		self.prevdisconnect()
-		self.nextdisconnect()
-		next.prevconnect( head )
-		prev.nextconnect( tail ) # connect last to avoig dangling digrams
-		self.delete()
+		guard, tail, head = rule.nodes()
+		# insert rule symbols)
+		next.prev = head
+		head.next = next
+		tail.prev = prev
+		prev.next = tail
+		# diconnect rule and self
+		guard.prev = guard
+		guard.next = guard
+		self.prev = self
+		self.next = self
+		self.delete() # will trigger rule deletion
+		return tail, head
 
-	def debugstring( self ):
-		return repr(self) + ":" + str( self.ref )
+	def debugstr( self ):
+		return repr(self) + " " + str( self.ref )
 
 	def __str__( self ):
 		return str( self.ref )
 
+class RuleError( Exception ):
+	pass
 
 class Rule( object ):
 
@@ -186,54 +200,73 @@ class Rule( object ):
 		# CAVE: invalidates all Index keys refering to rules; implies Index reset
 
 	def __init__( self ):
-		self.refs = set() # must be here before guard creation
-		self.guard = Symbol( self, guard=True )
-		self.guard.next = self.guard
-		self.guard.prev = self.guard
 		self.id = Rule.nextid
 		Rule.nextid += 1
+		self.refs = set() # must be here before guard creation
+		self.guard = Symbol( Symbol( self ) ) # distinctive for guard, creates rule reference
+		self.refs.remove( self.guard.ref ) # helps later on
 		Rule.rules[self.id] = self
-		log.debug( " Rule.nextid=%s Rule.rules=%s" % (Rule.nextid, Rule.rules) )
-		log.info( " new rule %s" % (self) )
+		log.debug( " new rule %s with id %s" % (self.debugstr(),str(self.id)) )
 
-	def __del__( self ):
-		log.debug( " delete rule %s" % self )
+	def delete( self ):
+		if not self.is_empty():
+			raise RuleError( "cannot delete non-empty rule %s" % repr(self) )
+		# dismantle rule
 		del Rule.rules[self.id]
+		self.guard.ref.ref = None # else delete will trigger rule dereference via killref path
+		self.guard.ref.delete()
+		self.guard.delete()
+		del self.guard
+		del self.refs
 
-	def killref( self, ref ):
-		log.debug( " killing reference to %s in rule %s" % (repr(ref)+str(ref),repr(self)+str(self)) )
-		try:
-			self.refs.remove( ref )
-		except KeyError:
-			log.warning( " trying to kill unregistered ref %s from %s" % (repr(ref), str(self)) )
-		if self.refcount() == 1: self.delete()
-	def addref( self, ref ):
-		self.refs.add( ref )
+	def is_empty( self ):
+		if not self.guard.is_connected():
+			if self.refcount() == 0:
+				return True
+		return False
+		#TODO: fill out error condition
+		#raise RuleError( " deleted rule %s is still in index" % repr(self) )
+
+	def nodes( self ):
+		"""returns list of this rule's guard, tail and head symbols"""
+		guard = self.guard
+		tail = guard.next
+		head = guard.prev
+		return guard, tail, head
 
 	def refcount( self ):
-		return len( self.refs ) - 1 # mind that one ref is always guard node
+		return len( self.refs )
 
-	def append( self, ref ):
-		symbol = Symbol( ref )
-		log.debug( " append symbol %s to %s" % (symbol, self) )
-		guard = self.guard
-		head = guard.prev
-		head.nextdisconnect() # disconnect from guard
-		symbol.nextconnect( guard )
-		head.nextconnect( symbol ) # connect last to avoid operating on dangling digrams
-		return symbol
+	def addref( self, symbol ):
+		log.debug( " adding rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+		self.refs.add( symbol )
+
+	def killref( self, symbol ):
+		log.debug( " removing rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+		try:
+			self.refs.remove( symbol )
+		except KeyError:
+			log.warning( " killref for unknown reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+			raise RuleError #TODO: nice message
+		# enforce rule utility
+		if self.refcount() == 1:
+			self.replace_lastref() # beware of the recursion
+			if self.refcount() == 0:
+				self.delete()
+			else:
+				raise RuleError #TODO: nice message
 
 	def each( self ):
-		p = self.guard.next
-		while not p is self.guard:
-			yield p.ref
-			p = p.next
+		symbol = self.guard.next
+		while not symbol is self.guard:
+			yield symbol.ref
+			symbol = symbol.next
 
-	def eachsym( self ):
-		p = self.guard.next
-		while not p is self.guard:
-			yield p
-			p = p.next
+	def eachsymbol( self ):
+		symbol = self.guard.next
+		while not symbol is self.guard:
+			yield symbol
+			symbol = symbol.next
 
 	def dump( self ):
 		return [ref for ref in self.each()]
@@ -247,63 +280,69 @@ class Rule( object ):
 				result.append( ref )
 		return result
 
-	def replace_digram( self, digram ):
-		# ensure rule utility
-		assert isinstance( digram, Symbol )
-		a,b = digram.digram()
-		log.info( " replace digram %s,%s with rule %s" % (repr(a)+str(a), repr(b)+str(b), repr(self)+str(self)) )
-		new = digram.replace_digram( Symbol( self ) )
-		return new
-
-	def delete( self ):
-		assert len( self.refs ) == 2 # one is the rule guard subsymbol
-
-		# TODO: ugly, ugly hack
-		a,b = self.refs
-		if a.next == None:
-			self.refs.remove( b )
-			ref = b
-		else:
-			self.refs.remove( a )
-			ref = a
-
-		log.info( " delete last rule reference at %s for rule %s" % (repr(ref)+str(ref),repr(self)+str(self)) )
-		#embed() 
-		# restore rule in place
-		# leaving the connection between the two symbols in the rule intact
-		# will keep the digram in the index which is okay in this special case. 
-		#TODO: move functionality to Symbol class?
-		prev = ref.prev
-		next = ref.next
-		tail = self.guard.next
+	def append( self, newref ):
+		newsymbol = Symbol( newref )
+		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
 		head = self.guard.prev
-		ref.replace_symbol( tail, head )
-		del Rule.rules[self.id]
+		# make new connection
+		head.insertnext( newsymbol )
+		# learn newly-formed digram
+		index.learn( head ) # might be guard
+		return newsymbol
+
+	def replace_digram( self, digram ):
+		"""replaces digram with reference to this rule.
+		   returns the newly-formed symbol.
+		   forgets broken and learns new digrams.
+		"""
+		# ensure rule utility
+		log.debug( " replaceing digram at %s with rule %s" % (digram.debugstr(), self.debugstr()) )
+		# forget broken digrams
+		index.forget( digram.prev )
+		index.forget( digram.next )
+		newsymbol = digram.replace_digram( self )
+		#learn new digrams
+		index.learn( newsymbol ) # newsymbol.next might be a guard
+		index.learn( newsymbol.prev ) # might be a guard
+		return newsymbol
+
+	def replace_lastref( self ):
+		"""replaces last reference to this rule with the rule's content.
+		   leaves empty rule.
+	   	   forgets broken and learns new digrams.
+		"""
+		if len( self.refs ) != 1:
+			raise RuleError #TODO: nice message
+		lastref = self.refs.copy().pop() # will be killrefed when final symbol is deleted
+		log.debug( " deleting rule %s with last reference %s" % (self.debugstr(), lastref.debugstr()) )
+		# forget broken digrams
+		index.forget( lastref.prev ) # lastref.prev might be guard
+		index.forget( lastref ) # lastref.next might be guard
+		tail, head = lastref.replace_symbol( self )
+		# learn new digrams
+		index.learn( head ) # head.next might be guard
+		index.learn( tail.prev ) # might be guard
 
 	@classmethod
 	def makeunique( cls, oldmatch, newmatch ):
 		if oldmatch.prev.is_guard() and oldmatch.next.next.is_guard():
 			# full rule match, ruse existing rule
 			oldrule = oldmatch.prev.ref.ref
-			log.debug( " makeunique with full rule %s replacing %s" % (oldrule,repr(newmatch)) )
+			log.debug( " makeunique with full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
 			oldrule.replace_digram( newmatch )
 			return False
 		else:
 			# create a new rule of the old digram
 			log.debug( " create new rule from %s and %s" % (oldmatch, oldmatch.next) )
-
-			# TODO: this workaround feels wrong:
-			# manually remove oldmatch from index. 
+			# forget old match, else recursion on second rule append
 			index.forget( oldmatch )
+			# create new rule
 			newrule = Rule()
 			newrule.append( oldmatch.ref ) # .ref ensures that symbol copy is used for rule
 			newrule.append( oldmatch.next.ref )
-
-			# replace both instances with new rule reference
+			# replace both instances with new rule
 			newrule.replace_digram( oldmatch )
 			newrule.replace_digram( newmatch )
-
-			# TODO: cleanup/unlink oldmatch and newmatch?
 			return newrule
 
 	@classmethod
@@ -313,10 +352,13 @@ class Rule( object ):
 	def prettystring( self ):
 		#address = str( repr( self ) ).split(' ')[-1][:-1]
 		if self.refcount() > -1: #TODO: ###############################################uglyhack############################################
-			s = repr(self) + " " + str( self ) + " (" + str(self.refcount()) + ") [" + ", ".join([str(x) for x in self.eachsym()]) + "]: refs: " + str( self.refs )
+			s = repr(self) + " " + str( self ) + " (" + str(self.refcount()) + ") [" + ", ".join([str(x) for x in self.eachsymbol()]) + "]: refs: " + str( self.refs )
 			return s
 		else:
 			return ""
+
+	def debugstr( self ):
+		return repr( self ) + ' ' + str( self )
 
 	def __str__( self ):
 		# TODO: beware of str(rule) <-> symbol ambiguity
@@ -328,7 +370,7 @@ def print_state():
 	for i in Rule.rules:
 		r = Rule.rules[i]
 		print " ", repr(r), "    ", str(r)
-		for d in r.eachsym():
+		for d in r.eachsymbol():
 			print "   ", repr(d), "  ", str(d)
 		print "      References:"
 		for ref in r.refs:
