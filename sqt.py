@@ -34,18 +34,21 @@ class Index( object ):
 
 	def learn( self, symbol ):
 		"""creates a digram reference in the dictionary if digram is new"""
-
 		# If a digram contains a guard, return False
 		# Removes detection logic from Symbol class
 		if symbol.is_guard() or symbol.next.is_guard(): return False
-
 		seenat = self.seen( symbol )
-		if seenat and (not (seenat.next is symbol)) and (not (seenat is symbol.next)): # seen and not overlapping
-			Rule.makeunique( seenat, symbol )
-			return False
+		if seenat:
+			overlap = seenat.next is symbol
+		 	if not overlap:
+				Rule.makeunique( seenat, symbol )
+				return False
+			else:
+				return False
 		else:
+			# actually learn
 			key = self.key( symbol )
-			log.debug( " index learning %s at %s" % (key, repr(symbol)) )
+			log.debug( " index learning %s at %s" % (str(key), symbol.debugstr()) )
 			self.dict[key] = symbol
 			return True
 
@@ -53,11 +56,12 @@ class Index( object ):
 		"""removes symbol digram from the dictionary"""
 		if symbol.is_guard() or symbol.next.is_guard(): return False
 		key = index.key( symbol )
+		log.debug( " index forgetting '%s' at %s" % (str(key), symbol.debugstr()) )
 		try:
 			if self.dict[key] == symbol: del self.dict[key]
 			log.debug( " index forgets %s" % key )
 		except KeyError:
-			raise # could pass to handle guards
+			raise KeyError( "key '%s' from digram %s not in index" % (str(key), repr(symbol)) )
 		return True
 
 	def __str__( self ):
@@ -293,7 +297,7 @@ class Rule( object ):
 		   forgets broken and learns new digrams.
 		"""
 		# ensure rule utility
-		log.debug( " replaceing digram at %s with rule %s" % (digram.debugstr(), self.debugstr()) )
+		log.debug( " replacing digram at %s with rule %s" % (digram.debugstr(), self.debugstr()) )
 		# forget broken digrams
 		index.forget( digram.prev )
 		index.forget( digram.next )
@@ -346,14 +350,6 @@ class Rule( object ):
 	def makeunique_disabled( cls, oldmatch, newmatch ):
 			pass
 
-	def prettystring( self ):
-		#address = str( repr( self ) ).split(' ')[-1][:-1]
-		if self.refcount() > -1: #TODO: ###############################################uglyhack############################################
-			s = repr(self) + " " + str( self ) + " (" + str(self.refcount()) + ") [" + ", ".join([str(x) for x in self.eachsymbol()]) + "]: refs: " + str( self.refs )
-			return s
-		else:
-			return ""
-
 	def debugstr( self ):
 		return repr( self ) + ' ' + str( self )
 
@@ -377,7 +373,6 @@ def print_state():
 	for key in index.dict:
 		s = index.dict[key]
 		print " ", repr(s), "  ", key
-
 
 class Sequitur( object ):
 
@@ -418,7 +413,7 @@ class Sequitur( object ):
 		return '\n'.join( a )
 
 def main():
-	log.basicConfig( level=log.ERROR )
+	log.basicConfig( level=log.DEBUG )
 	try:
 		filename = sys.argv[1]
 	except:
