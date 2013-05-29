@@ -93,8 +93,8 @@ class Symbol( object ):
 		   triggers killref() if reference is a rule.
 		"""
 		log.debug( " symbol %s is being deleted" % repr(self) )
-		#if self.is_connected():
-		#	raise SymbolError( "connected %s marked for deletion" % repr(self) )
+		if self.is_connected():
+			raise SymbolError( "connected %s marked for deletion" % repr(self) )
 		if isinstance( self.ref, Rule ): self.ref.killref( self )
 		del self.ref
 		del self.next
@@ -120,8 +120,8 @@ class Symbol( object ):
 	def insertnext( self, next ):
 		"""inserts symbol referenced by next right of this symbol."""
 		log.debug( " inserting %s right of %s" % (next.debugstr(),self.debugstr()) )
-		#if next.is_connected():
-		#	raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(next)) )
+		if next.is_connected():
+			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(next)) )
 		oldnext = self.next
 		oldnext.prev = next
 		next.next = oldnext
@@ -130,12 +130,12 @@ class Symbol( object ):
 
 	def digram( self ):
 		"""returns this symbol and its next-door neighbor."""
-		#if self.next.is_guard():
-		#	raise SymbolError( "digram call to guard node %s" % repr(self) )
-		#if self.is_guard():
-		#	raise SymbolError( "digram call to guard symbol %s" % repr(self) )
-		#if not self.is_connected():
-		#	raise SymbolError( "digram call unconnected symbol %s" % repr(self) )
+		if self.next.is_guard():
+			raise SymbolError( "digram call to guard node %s" % repr(self) )
+		if self.is_guard():
+			raise SymbolError( "digram call to guard symbol %s" % repr(self) )
+		if not self.is_connected():
+			raise SymbolError( "digram call unconnected symbol %s" % repr(self) )
 		return self, self.next
 
 	def refdigram( self ):
@@ -231,8 +231,8 @@ class Rule( object ):
 
 	def delete( self ):
 		"""removes this rule from rule index and frees references for garbage collector."""
-		#if not self.is_empty():
-		#	raise RuleError( "cannot delete non-empty rule %s" % repr(self) )
+		if not self.is_empty():
+			raise RuleError( "cannot delete non-empty rule %s" % repr(self) )
 		# dismantle rule
 		del Rule.rules[self.id]
 		self.guard.ref.ref = None # else delete will trigger rule dereference via killref path
