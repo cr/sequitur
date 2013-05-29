@@ -350,22 +350,21 @@ class Test_CA_Index( unittest.TestCase ):
 
 		Rule.makeunique = tmpmakeunique
 
-		Rule.reset()
-		index.reset()
+	def test_index_overlap_relearning_issue( self ): 
+		# if on overlap you do not learn the right-hand digram,
+		# the following situation as described in the comments will occurr
 		r = Rule()
 		r.append( 1 )
+		r.append( 2 )
+		a = r.append( 2 ) # 2,2 is learned
+		r.append( 2 ) # second 2,2 digram will not be learned because of overlap
 		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		r.append( 1 )
-		print_state()
-		embed()
+		r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
+		              # 2,2 is unlearned, but S=r,2,2,r
+		self.assertIs( index.seen( a ), a )
+		r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
+		              # 2,2 is unlearned, but not in index, resulting in KeyError
+		              # solution: re-learn right-hand digram of overlaps
 
 	# This test should be in TestRule, but the class has the
 	# Rule.makeunique trigger globally disabled
