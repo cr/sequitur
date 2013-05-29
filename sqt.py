@@ -48,14 +48,11 @@ class Index( object ):
 		 	if not overlap:
 				Rule.makeunique( seenat, digram )
 				return False
-			else:
-				return False
-		else:
-			# actually learn
-			key = self.key( digram )
-			log.debug( " index learning %s at %s" % (str(key), digram.debugstr()) )
-			self.dict[key] = digram
-			return True
+		# actually learn
+		key = self.key( digram )
+		log.debug( " index learning %s at %s" % (str(key), digram.debugstr()) )
+		self.dict[key] = digram
+		return True
 
 	def forget( self, digram ):
 		"""removes digram from the dictionary"""
