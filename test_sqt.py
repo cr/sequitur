@@ -302,8 +302,7 @@ class Test_CA_Index( unittest.TestCase ):
 		Rule.makeunique = Rule.makeunique_disabled
 		# calls to learn() and forget() are implicit through symbol linkage/unlinkage
 		unlearned = Symbol( 1 )
-		unlearnedb = Symbol( 2 )
-		unlearned.insertnext( unlearnedb )
+		unlearned.insertnext( Symbol( 2 ) )
 		self.assertFalse( index.seen( unlearned ) )
 		a = Symbol( 1 )
 		b = Symbol( 2 )
@@ -324,6 +323,30 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertFalse( index.seen( unlearned ) )
 		e = r.append( 2 )
 		self.assertTrue( index.seen( unlearned ) )
+
+		Rule.makeunique = tmpmakeunique
+
+	def test_index_overlap( self ):
+		# temporarily disable makeunique to prevent failure on low-level linkage
+		tmpmakeunique = Rule.makeunique
+		Rule.makeunique = Rule.makeunique_disabled
+
+		unlearned = Symbol( 1 )
+		unlearned.insertnext( Symbol( 1 ) )
+		a = Symbol( 1 )
+		b = Symbol( 1 )
+		c = Symbol( 1 )
+		d = Symbol( 1 )
+		a.insertnext( b )
+		b.insertnext( c )
+		c.insertnext( d )
+		self.assertFalse( index.seen( unlearned ) )
+		index.learn( a )
+		self.assertIs( index.seen( unlearned ), a )
+		index.learn( b )
+		self.assertIs( index.seen( unlearned ), a )
+		index.learn( c ) # trigger time, but disabled
+		self.assertIs( index.seen( unlearned ), a )
 
 		Rule.makeunique = tmpmakeunique
 
