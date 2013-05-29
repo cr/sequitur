@@ -413,7 +413,7 @@ class Sequitur( object ):
 		return '\n'.join( a )
 
 def main():
-	log.basicConfig( level=log.DEBUG )
+	log.basicConfig( level=log.WARNING )
 	try:
 		filename = sys.argv[1]
 	except:
