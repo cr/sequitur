@@ -61,10 +61,10 @@ class Index( object ):
 		"""removes digram from the dictionary"""
 		if digram.is_guard() or digram.next.is_guard(): return False
 		key = index.key( digram )
-		log.debug( " index forgetting '%s' at %s" % (str(key), digram.debugstr()) )
+		log.debug( " index to forget '%s' at %s" % (str(key), digram.debugstr()) )
 		try:
+			log.debug( " index forgetting %s" % key )
 			if self.dict[key] == digram: del self.dict[key]
-			log.debug( " index forgets %s" % key )
 		except KeyError:
 			raise KeyError( "key '%s' from digram %s not in index" % (str(key), repr(digram)) )
 		return True
@@ -457,7 +457,7 @@ class Sequitur( object ):
 		return '\n'.join( a )
 
 def main():
-	log.basicConfig( level=log.WARNING )
+	log.basicConfig( level=log.DEBUG )
 	try:
 		filename = sys.argv[1]
 	except:

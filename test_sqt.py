@@ -3,7 +3,7 @@
 from sqt import *
 import unittest
 import logging as log
-log.basicConfig( level=log.WARNING )
+log.basicConfig( level=log.DEBUG )
 from IPython import embed
 
 #########################################################################################
@@ -349,6 +349,23 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertIs( index.seen( unlearned ), a )
 
 		Rule.makeunique = tmpmakeunique
+
+		Rule.reset()
+		index.reset()
+		r = Rule()
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		r.append( 1 )
+		print_state()
+		embed()
 
 	# This test should be in TestRule, but the class has the
 	# Rule.makeunique trigger globally disabled
