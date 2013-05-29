@@ -367,8 +367,7 @@ def print_state():
 			print "   ", repr(d), "  ", str(d)
 		print "      References:"
 		for ref in r.refs:
-			if ref.next != None: # that guard node hack...
-				print "       ", repr(ref), str(ref)
+			print "       ", repr(ref), str(ref)
 	print "::::::::::::::::: Index ::::::::::::::::::"
 	for key in index.dict:
 		s = index.dict[key]
@@ -428,7 +427,7 @@ def main():
 		s.append( chr(byte) )
 
 	print s
-	embed()
+	##embed()
 
 if __name__ == '__main__':
 	main()
