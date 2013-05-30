@@ -13,7 +13,7 @@ class Test_AA_Symbol( unittest.TestCase ):
 	def setUpClass( cls ):
 		log.basicConfig( level=log.DEBUG )
 		log.info( " ##### BEGIN %s ##############################################" % cls )
-		# temporarily disable makeunique to prevent failure on low-level linkage
+		# temporarily disable makeunique to leftent failure on low-level linkage
 		cls.tmpmakeunique = Rule.makeunique
 		Rule.makeunique = Rule.makeunique_disabled
 
@@ -31,8 +31,8 @@ class Test_AA_Symbol( unittest.TestCase ):
 		a = Symbol( n )
 		self.assertTrue( isinstance( a, Symbol ) )
 		self.assertFalse( a.is_connected() )
-		self.assertIs( a.next, a )
-		self.assertIs( a.prev, a )
+		self.assertIs( a.r, a )
+		self.assertIs( a.l, a )
 		self.assertIs( a.ref, n )
 
 	def test_symbol_is_connected( self ):
@@ -40,7 +40,7 @@ class Test_AA_Symbol( unittest.TestCase ):
 		b = Symbol( 2 )
 		self.assertFalse( a.is_connected() )
 		self.assertFalse( b.is_connected() )
-		a.insertnext( b )
+		a.insertright( b )
 		self.assertTrue( a.is_connected() )
 		self.assertTrue( b.is_connected() )
 
@@ -54,22 +54,22 @@ class Test_AA_Symbol( unittest.TestCase ):
 	def test_symbol_linkage( self ):
 		a = Symbol( 1 )
 		b = Symbol( 2 )
-		self.assertIs( a.next, a )
-		self.assertIs( a.prev, a )
-		self.assertIs( b.next, b )
-		self.assertIs( b.prev, b )
-		a.insertnext( b )
-		self.assertIs( a.next, b )
-		self.assertIs( a.prev, b )
-		self.assertIs( b.next, a )
-		self.assertIs( b.prev, a )
+		self.assertIs( a.r, a )
+		self.assertIs( a.l, a )
+		self.assertIs( b.r, b )
+		self.assertIs( b.l, b )
+		a.insertright( b )
+		self.assertIs( a.r, b )
+		self.assertIs( a.l, b )
+		self.assertIs( b.r, a )
+		self.assertIs( b.l, a )
 
 	def test_symbol_digrams( self ):
 		g = Symbol( Symbol ( 0 ) )
 		a = Symbol( 1 )
 		b = Symbol( 2 )
-		g.insertnext( a )
-		a.insertnext( b )
+		g.insertright( a )
+		a.insertright( b )
 		self.assertEqual( a.digram(), (a,b) )
 		self.assertEqual( a.refdigram(), (1,2) )
 		#with self.assertRaises( SymbolError ): g.digram()
@@ -81,17 +81,17 @@ class Test_AA_Symbol( unittest.TestCase ):
 		c = Symbol( 3 )
 		d = Symbol( 4 )
 		e = Symbol( 5 )
-		a.insertnext( b )
-		b.insertnext( c )
-		c.insertnext( d )
+		a.insertright( b )
+		b.insertright( c )
+		c.insertright( d )
 		ret = b.replace_digram( e )
 		self.assertIs( ret.ref, e )
-		self.assertIs( a.next, ret )
-		self.assertIs( ret.next, d )
-		self.assertIs( d.next, a )
-		self.assertIs( d.prev, ret )
-		self.assertIs( ret.prev, a )
-		self.assertIs( a.prev, d )
+		self.assertIs( a.r, ret )
+		self.assertIs( ret.r, d )
+		self.assertIs( d.r, a )
+		self.assertIs( d.l, ret )
+		self.assertIs( ret.l, a )
+		self.assertIs( a.l, d )
 
 	def test_symbol_replace_symbol( self ):
 		r = Rule()
@@ -105,19 +105,19 @@ class Test_AA_Symbol( unittest.TestCase ):
 		tail, head = b.replace_symbol( s )
 		self.assertIs( tail, e )
 		self.assertIs( head, f )
-		self.assertIs( r.guard.next, a )
-		self.assertIs( a.next, e )
-		self.assertIs( e.next, f )
-		self.assertIs( f.next, c )
-		self.assertIs( c.next, d )
-		self.assertIs( d.next, r.guard )
-		self.assertIs( r.guard.prev, d )
-		self.assertIs( d.prev, c )
-		self.assertIs( c.prev, f )
-		self.assertIs( f.prev, e )
-		self.assertIs( e.prev, a )
-		self.assertIs( a.prev, r.guard )
-		#TODO: test replacing next to guards
+		self.assertIs( r.guard.r, a )
+		self.assertIs( a.r, e )
+		self.assertIs( e.r, f )
+		self.assertIs( f.r, c )
+		self.assertIs( c.r, d )
+		self.assertIs( d.r, r.guard )
+		self.assertIs( r.guard.l, d )
+		self.assertIs( d.l, c )
+		self.assertIs( c.l, f )
+		self.assertIs( f.l, e )
+		self.assertIs( e.l, a )
+		self.assertIs( a.l, r.guard )
+		#TODO: test replacing right to guards
 
 #########################################################################################
 class Test_BA_Rule( unittest.TestCase ):
@@ -126,7 +126,7 @@ class Test_BA_Rule( unittest.TestCase ):
 	def setUpClass( cls ):
 		log.basicConfig( level=log.ERROR )
 		log.info( " ##### BEGIN %s ##############################################" % cls )
-		# temporarily disable makeunique to prevent failure on low-level linkage
+		# temporarily disable makeunique to leftent failure on low-level linkage
 		cls.tmpmakeunique = Rule.makeunique
 		Rule.makeunique = Rule.makeunique_disabled
 
@@ -146,8 +146,8 @@ class Test_BA_Rule( unittest.TestCase ):
 		self.assertTrue( r.is_empty )
 		self.assertTrue( r.guard.is_guard() )
 		self.assertIs( r.guard.ref.ref, r )
-		self.assertIs( r.guard.next, r.guard )
-		self.assertIs( r.guard.prev, r.guard )
+		self.assertIs( r.guard.r, r.guard )
+		self.assertIs( r.guard.l, r.guard )
 		self.assertEqual( r.refcount(), 0 )
 
 	def test_rule_delete( self ):
@@ -162,17 +162,17 @@ class Test_BA_Rule( unittest.TestCase ):
 		a = r.append( 1 )
 		self.assertTrue( r.guard.is_guard() )
 		self.assertTrue( isinstance( a, Symbol ) )
-		self.assertIs( r.guard.next, a )
-		self.assertIs( r.guard.next.next, r.guard )
-		self.assertIs( r.guard.prev, a )
-		self.assertIs( r.guard.prev.prev, r.guard )
+		self.assertIs( r.guard.r, a )
+		self.assertIs( r.guard.r.r, r.guard )
+		self.assertIs( r.guard.l, a )
+		self.assertIs( r.guard.l.l, r.guard )
 		b = r.append( 2 )
-		self.assertIs( r.guard.next, a )
-		self.assertIs( r.guard.next.next, b )
-		self.assertIs( r.guard.next.next.next, r.guard )
-		self.assertIs( r.guard.prev, b )
-		self.assertIs( r.guard.prev.prev, a )
-		self.assertIs( r.guard.prev.prev.prev, r.guard )
+		self.assertIs( r.guard.r, a )
+		self.assertIs( r.guard.r.r, b )
+		self.assertIs( r.guard.r.r.r, r.guard )
+		self.assertIs( r.guard.l, b )
+		self.assertIs( r.guard.l.l, a )
+		self.assertIs( r.guard.l.l.l, r.guard )
 
 	def test_rule_is_empty( self ):
 		r = Rule()
@@ -229,9 +229,9 @@ class Test_BA_Rule( unittest.TestCase ):
 		cnew = r.replace_digram( c )
 		self.assertEqual( s.dump(), [r, r, 3, 11, 22] )
 		fnew = r.replace_digram( f )
-		self.assertIs( anew, e.prev.prev )
-		self.assertIs( cnew, e.prev )
-		self.assertIs( fnew, e.next )
+		self.assertIs( anew, e.l.l )
+		self.assertIs( cnew, e.l )
+		self.assertIs( fnew, e.r )
 		self.assertEqual( s.dump(), [r, r, 3, r] )
 		self.assertEqual( s.walk(), [1, 2, 1, 2, 3, 1, 2] )
 		self.assertEqual( r.dump(), [1, 2] )
@@ -292,20 +292,20 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
 		index.reset()
 		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
-		#with self.assertRaises( SymbolError ): index.key( b ) # b.next is a guard
+		#with self.assertRaises( SymbolError ): index.key( b ) # b.r is a guard
 		#with self.assertRaises( SymbolError ): index.key( r.guard )
 
 	def test_index_learning( self ):
-		# temporarily disable makeunique to prevent failure on low-level linkage
+		# temporarily disable makeunique to leftent failure on low-level linkage
 		tmpmakeunique = Rule.makeunique
 		Rule.makeunique = Rule.makeunique_disabled
 		# calls to learn() and forget() are implicit through symbol linkage/unlinkage
 		unlearned = Symbol( 1 )
-		unlearned.insertnext( Symbol( 2 ) )
+		unlearned.insertright( Symbol( 2 ) )
 		self.assertFalse( index.seen( unlearned ) )
 		a = Symbol( 1 )
 		b = Symbol( 2 )
-		a.insertnext( b )
+		a.insertright( b )
 		self.assertFalse( index.seen( unlearned ) )
 		index.learn( a )
 		self.assertTrue( index.seen( unlearned ) )
@@ -316,8 +316,8 @@ class Test_CA_Index( unittest.TestCase ):
 
 		r = Rule()
 		c = r.append( 1 )
-		#with self.assertRaises( SymbolError ): index.seen( c.prev ) # c.prev is guard
-		#with self.assertRaises( SymbolError ): index.seen( c ) # c.next is guard
+		#with self.assertRaises( SymbolError ): index.seen( c.l ) # c.l is guard
+		#with self.assertRaises( SymbolError ): index.seen( c ) # c.r is guard
 		d = r.append( 1 )
 		self.assertFalse( index.seen( unlearned ) )
 		e = r.append( 2 )
@@ -327,12 +327,12 @@ class Test_CA_Index( unittest.TestCase ):
 
 	def test_index_overlap( self ):
 		unlearned = Symbol( 1 )
-		unlearned.insertnext( Symbol( 1 ) )
+		unlearned.insertright( Symbol( 1 ) )
 		a = Symbol( 1 )
 		b = Symbol( 1 )
 		c = Symbol( 1 )
-		a.insertnext( b )
-		b.insertnext( c )
+		a.insertright( b )
+		b.insertright( c )
 		self.assertFalse( index.seen( unlearned ) )
 		index.learn( a )
 		self.assertIs( index.seen( unlearned ), a )
@@ -357,22 +357,22 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( s.dump(), [2,3] )
 		self.assertEqual( r.walk(), [1,2,3,4,2,3] )
 		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.next.next in s.refs )
-		self.assertTrue( r.guard.next.next.next.next in s.refs )
+		self.assertTrue( r.guard.r.r in s.refs )
+		self.assertTrue( r.guard.r.r.r.r in s.refs )
 		r.append( 1 )
 		self.assertEqual( r.dump(), [1,s,4,s,1] )
 		self.assertEqual( s.dump(), [2,3] )
 		self.assertEqual( r.walk(), [1,2,3,4,2,3,1] )
 		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.next.next in s.refs )
-		self.assertTrue( r.guard.next.next.next.next in s.refs )
+		self.assertTrue( r.guard.r.r in s.refs )
+		self.assertTrue( r.guard.r.r.r.r in s.refs )
 		r.append( 2 )
 		self.assertEqual( r.dump(), [1,s,4,s,1,2] )
 		self.assertEqual( s.dump(), [2,3] )
 		self.assertEqual( r.walk(), [1,2,3,4,2,3,1,2] )
 		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.next.next in s.refs )
-		#elf.assertTrue( r.guard.next.next.next.next in s.refs )
+		self.assertTrue( r.guard.r.r in s.refs )
+		#elf.assertTrue( r.guard.r.r.r.r in s.refs )
 		r.append( 3 )
 		#print_state()
 		#self.assertEqual( len(Rule.rules), 3 )
@@ -380,8 +380,8 @@ class Test_CA_Index( unittest.TestCase ):
 		#t = Rule.rules[2]
 		#self.assertEqual( r.dump(), [t,4,2,3,t] )
 		#self.assertEqual( t.dump(), [1,2,3] )
-		#self.assertTrue( r.guard.next in t.refs )
-		#self.assertTrue( r.guard.next.next.next.next.next in t.refs )
+		#self.assertTrue( r.guard.r in t.refs )
+		#self.assertTrue( r.guard.r.r.r.r.r in t.refs )
 		r.append( 4 )
 		self.assertEqual( r.walk(), [1, 2, 3, 4, 2, 3, 1, 2, 3, 4] )
 
@@ -420,7 +420,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		r.append( 2 ) # second 2,2 digram will not be learned because of overlap
 		r.append( 1 )
 		print_state()
-		embed()
+		#embed()
 		r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
 		              # 2,2 unlearned because of broken connecttion (BUG), while S=r,2,2,r
 		self.assertIs( index.seen( a ), a )
@@ -441,7 +441,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		print_state()
 		r.append( 2 ) # 2,2 learned
 		print_state()
-		r.append( 2 ) # overlapping 2,2 overrides previous
+		r.append( 2 ) # overlapping 2,2 overrides leftious
 		print_state()
 		r.append( 3 ) # 2,2 unlearned because of rule substitution, but still in index (BUG)
 		print_state()
@@ -454,7 +454,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		r.append( 2 ) # crash with KeyError
 		print_state()
 
-	def test_overlapping_more( self ):
+	def test_sequitur_overlapping_more( self ):
 		#aaaabaaaaaa
 		r = Rule()
 		r.append( 1 )
@@ -463,7 +463,6 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		print_state()
 		r.append( 1 )
 		print_state()
-		embed()
 		r.append( 1 )
 		print_state()
 		r.append( 2 )

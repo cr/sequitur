@@ -41,10 +41,10 @@ class Index( object ):
 		"""
 		# If a digram contains a guard, return False
 		# Removes detection logic from Symbol class
-		if digram.is_guard() or digram.next.is_guard(): return False
+		if digram.is_guard() or digram.r.is_guard(): return False
 		seenat = self.seen( digram )
 		if seenat:
-			overlap = (seenat.next is digram) or (seenat.prev is digram)
+			overlap = (seenat.r is digram) or (seenat.l is digram)
 		 	if not overlap:
 				Rule.makeunique( seenat, digram )
 				return False
@@ -61,7 +61,7 @@ class Index( object ):
 
 	def forget( self, digram ):
 		"""removes digram from the dictionary"""
-		if digram.is_guard() or digram.next.is_guard(): return False
+		if digram.is_guard() or digram.r.is_guard(): return False
 		key = index.key( digram )
 		log.debug( " index to forget '%s' at %s" % (str(key), digram.debugstr()) )
 		try:
@@ -86,8 +86,8 @@ class Symbol( object ):
 	def __init__( self, reference, ruleref=True ):
 		self.ref = reference
 		log.debug( " new symbol %s with reference to %s" % (self.debugstr(), str(reference)) )
-		self.prev = self
-		self.next = self
+		self.l = self
+		self.r = self
 		if ruleref and isinstance( self.ref, Rule ): self.ref.addref( self )
 
 	def delete( self ):
@@ -99,53 +99,53 @@ class Symbol( object ):
 			raise SymbolError( "connected %s marked for deletion" % repr(self) )
 		if isinstance( self.ref, Rule ): self.ref.killref( self )
 		del self.ref
-		del self.next
-		del self.prev
+		del self.r
+		del self.l
 
 	def is_connected( self ):
 		"""returns False if symbol is self-connected, else True."""
-		if self.next is self:
-			if self.prev is self:
+		if self.r is self:
+			if self.l is self:
 				return False
 			else:
-				raise SymbolError( "%s has broken prev/next connection" % repr(self) )
+				raise SymbolError( "%s has broken left/right connection" % repr(self) )
 		else:
-			if self.prev is not self:
+			if self.l is not self:
 				return True
 			else:
-				raise SymbolError( "%s has broken next/prev connection" % repr(self) )
+				raise SymbolError( "%s has broken right/left connection" % repr(self) )
 
 	def is_threesome( self ):
 		"""returns True if this symbol and both neighbors reference the same, else False."""
-		return self.ref == self.prev.ref and self.ref == self.next.ref
+		return self.ref == self.l.ref and self.ref == self.r.ref
 
 	def is_guard( self ):
 		"""returns True if this symbol is a guard, else False."""
 		return isinstance( self.ref, Symbol )
 
-	def insertnext( self, next ):
-		"""inserts symbol referenced by next right of this symbol."""
-		log.debug( " inserting %s right of %s" % (next.debugstr(),self.debugstr()) )
-		if next.is_connected():
-			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(next)) )
-		oldnext = self.next
-		oldnext.prev = next
-		next.next = oldnext
-		self.next = next
-		next.prev = self
+	def insertright( self, right ):
+		"""inserts symbol referenced by right right of this symbol."""
+		log.debug( " inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
+		if right.is_connected():
+			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(right)) )
+		oldright = self.r
+		oldright.l = right
+		right.r = oldright
+		self.r = right
+		right.l = self
 
 	def digram( self ):
-		"""returns this symbol and its next-door neighbor."""
-		if self.next.is_guard():
+		"""returns this symbol and its right-door neighbor."""
+		if self.r.is_guard():
 			raise SymbolError( "digram call to guard node %s" % repr(self) )
 		if self.is_guard():
 			raise SymbolError( "digram call to guard symbol %s" % repr(self) )
 		if not self.is_connected():
 			raise SymbolError( "digram call unconnected symbol %s" % repr(self) )
-		return self, self.next
+		return self, self.r
 
 	def refdigram( self ):
-		"""returns this symbol's reference and that of its next-door neighbor."""
+		"""returns this symbol's reference and that of its right-door neighbor."""
 		tail,head = self.digram()
 		return tail.ref, head.ref
 
@@ -155,19 +155,19 @@ class Symbol( object ):
 		""" 
 		newsymbol = Symbol( rule )
 		tail,head = self.digram()
-		prev = tail.prev
-		next = head.next
+		left = tail.l
+		right = head.r
 		# new connections
-		next.prev = newsymbol
-		newsymbol.next = next
-		newsymbol.prev = prev
-		prev.next = newsymbol	
+		right.l = newsymbol
+		newsymbol.r = right
+		newsymbol.l = left
+		left.r = newsymbol	
 		# disconnect tail and head
-		tail.prev = tail
-		tail.next = tail
+		tail.l = tail
+		tail.r = tail
 		tail.delete()
-		head.prev = head
-		head.next = head
+		head.l = head
+		head.r = head
 		head.delete()
 		return newsymbol
 
@@ -177,19 +177,19 @@ class Symbol( object ):
 		   returns tail and head of what was replaced.
 		   triggers deletion of this symbol.
 		"""
-		prev = self.prev
-		next = self.next
+		left = self.l
+		right = self.r
 		guard, tail, head = rule.nodes()
 		# insert rule symbols)
-		next.prev = head
-		head.next = next
-		tail.prev = prev
-		prev.next = tail
+		right.l = head
+		head.r = right
+		tail.l = left
+		left.r = tail
 		# diconnect rule and self
-		guard.prev = guard
-		guard.next = guard
-		self.prev = self
-		self.next = self
+		guard.l = guard
+		guard.r = guard
+		self.l = self
+		self.r = self
 		self.delete() # will trigger rule deletion
 		return tail, head
 
@@ -206,7 +206,7 @@ class RuleError( Exception ):
 class Rule( object ):
 
 	rules = {}
-	nextid = 0
+	rightid = 0
 	rulemarker = "r"
 
 	@classmethod
@@ -215,7 +215,7 @@ class Rule( object ):
 		del cls.rules
 		gc.collect()
 		cls.rules = {}
-		cls.nextid = 0
+		cls.rid = 0
 		cls.rulemarker = "r"
 		log.debug( " index reset" )
 
@@ -227,9 +227,9 @@ class Rule( object ):
 		#TODO: if rule marker moves to rule ID, rule index is invalidated, too
 
 	def __init__( self ):
-		self.id = Rule.nextid
+		self.id = Rule.rid
 		log.debug( " new rule %s with id %s" % (self.debugstr(),str(self.id)) )
-		Rule.nextid += 1
+		Rule.rid += 1
 		self.refs = set() # must be here before guard creation
 		self.guard = Symbol( Symbol( self, ruleref=False ) ) # distinctive for guard
 		Rule.rules[self.id] = self
@@ -256,8 +256,8 @@ class Rule( object ):
 	def nodes( self ):
 		"""returns list of this rule's guard, tail and head symbols"""
 		guard = self.guard
-		tail = guard.next
-		head = guard.prev
+		tail = guard.r
+		head = guard.l
 		return guard, tail, head
 
 	def refcount( self ):
@@ -287,17 +287,17 @@ class Rule( object ):
 
 	def each( self ):
 		"""iterator yielding the ordered references this rule contains."""
-		symbol = self.guard.next
+		symbol = self.guard.r
 		while not symbol is self.guard:
 			yield symbol.ref
-			symbol = symbol.next
+			symbol = symbol.r
 
 	def eachsymbol( self ):
 		"""iterator yielding the ordered symbols this rule contains."""
-		symbol = self.guard.next
+		symbol = self.guard.r
 		while not symbol is self.guard:
 			yield symbol
-			symbol = symbol.next
+			symbol = symbol.r
 
 	def dump( self ):
 		"""returns ordered list of references this rule makes."""
@@ -319,9 +319,9 @@ class Rule( object ):
 		"""wraps newref into symbol and appends it to this rule's head."""
 		newsymbol = Symbol( newref )
 		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
-		head = self.guard.prev
+		head = self.guard.l
 		# make new connection
-		head.insertnext( newsymbol )
+		head.insertright( newsymbol )
 		# learn newly-formed digram
 		index.learn( head )
 		return newsymbol
@@ -333,17 +333,17 @@ class Rule( object ):
 		"""
 		# ensure rule utility
 		log.debug( " replacing digram at %s with rule %s" % (digram.debugstr(), self.debugstr()) )
-		index.forget( digram.prev )
+		index.forget( digram.l )
 		index.forget( digram ) # else recursion on second rule append
-		index.forget( digram.next.next )
-		index.forget( digram.next )
+		index.forget( digram.r.r )
+		index.forget( digram.r )
 		# overlap corrections
-		if digram.next.next.is_threesome(): index.learn( digram.next.next )
-		if digram.prev.is_threesome(): index.learn( digram.prev.prev )
+		if digram.r.r.is_threesome(): index.learn( digram.r.r )
+		if digram.l.is_threesome(): index.learn( digram.l.l )
 		newsymbol = digram.replace_digram( self )
 		# learn new
 		index.learn( newsymbol )
-		index.learn( newsymbol.prev )
+		index.learn( newsymbol.l )
 		return newsymbol
 
 	def replace_lastref( self ):
@@ -356,14 +356,14 @@ class Rule( object ):
 		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
 		log.debug( " deleting rule %s with last reference %s" % (self.debugstr(), lastref.debugstr()) )
 		# forget broken digrams
-		index.forget( lastref.prev )
+		index.forget( lastref.l )
 		index.forget( lastref )
 		# overlaps
-		if lastref.next.is_threesome(): index.learn( lastref.next )
-		if lastref.prev.is_threesome(): index.learn( lastref.prev.prev )
+		if lastref.r.is_threesome(): index.learn( lastref.r )
+		if lastref.l.is_threesome(): index.learn( lastref.l.l )
 		tail, head = lastref.replace_symbol( self )
 		# learn new digrams
-		index.learn( tail.prev )
+		index.learn( tail.l )
 		index.learn( head )
 		return tail, head
 
@@ -376,22 +376,22 @@ class Rule( object ):
 		"""
 		log.debug( " makeunique with oldmatch %s and newmatch %s" % (oldmatch.debugstr(),newmatch.debugstr()) )
 
-		if oldmatch.prev.is_guard() and oldmatch.next.next.is_guard():
+		if oldmatch.l.is_guard() and oldmatch.r.r.is_guard():
 			# full rule match, re-use existing rule
-			oldrule = oldmatch.prev.ref.ref
+			oldrule = oldmatch.l.ref.ref
 			log.debug( " full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
 			newsymbol = oldrule.replace_digram( newmatch )
 			return newsymbol
 
 		else:
 			# create a new rule of the old digram
-			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.next) )
+			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.r) )
 			newrule = Rule()
 			newrule.append( oldmatch.ref, learn=False ) # .ref ensures that symbol copy is used for rule
-			newrule.append( oldmatch.next.ref, learn=False )
+			newrule.append( oldmatch.r.ref, learn=False )
 			oldsymbol = newrule.replace_digram( oldmatch )
 			newsymbol = newrule.replace_digram( newmatch )
-			index.learn( newrule.guard.next )
+			index.learn( newrule.guard.r )
 			return newrule
 
 	@classmethod
