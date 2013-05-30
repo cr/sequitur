@@ -207,7 +207,6 @@ class Test_BA_Rule( unittest.TestCase ):
 		s.append( 3 )
 		s.append( r )
 		s.append( 4 )
-		#print_state()
 		self.assertEqual( r.dump(), [1, 2] )
 		self.assertEqual( r.walk(), [1, 2] )
 		self.assertEqual( s.dump(), [3, r, 4] )
@@ -327,58 +326,18 @@ class Test_CA_Index( unittest.TestCase ):
 		Rule.makeunique = tmpmakeunique
 
 	def test_index_overlap( self ):
-		# temporarily disable makeunique to prevent failure on low-level linkage
-		tmpmakeunique = Rule.makeunique
-		Rule.makeunique = Rule.makeunique_disabled
-
 		unlearned = Symbol( 1 )
 		unlearned.insertnext( Symbol( 1 ) )
 		a = Symbol( 1 )
 		b = Symbol( 1 )
 		c = Symbol( 1 )
-		d = Symbol( 1 )
 		a.insertnext( b )
 		b.insertnext( c )
-		c.insertnext( d )
 		self.assertFalse( index.seen( unlearned ) )
 		index.learn( a )
 		self.assertIs( index.seen( unlearned ), a )
 		index.learn( b )
-		self.assertIs( index.seen( unlearned ), a )
-		index.learn( c ) # trigger time, but disabled
-		self.assertIs( index.seen( unlearned ), a )
-
-		Rule.makeunique = tmpmakeunique
-
-	def test_index_overlap_relearning_issue( self ): 
-		# if on overlap you do not learn the right-hand digram,
-		# the following situation as described in the comments will occurr
-		r = Rule()
-		r.append( 1 )
-		r.append( 2 )
-		a = r.append( 2 ) # 2,2 is learned
-		r.append( 2 ) # second 2,2 digram will not be learned because of overlap
-		r.append( 1 )
-		r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
-		              # 2,2 is unlearned, but S=r,2,2,r
-		self.assertIs( index.seen( a ), a )
-		r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
-		              # 2,2 is unlearned, but not in index, resulting in KeyError
-		              # solution: re-learn right-hand digram of overlaps
-
-	# This test should be in TestRule, but the class has the
-	# Rule.makeunique trigger globally disabled
-	def test_index_makeunique( self ):
-		r = Rule()
-		a = r.append( 1 )
-		b = r.append( 2 )
-		s = Rule()
-		c = s.append( 3 )
-		d = s.append( 1 )
-		e = s.append( 2 )
-		f = s.append( 4 )
-		self.assertEqual( s.dump(), [3,r,4] )
-		self.assertEqual( s.walk(), [3,1,2,4] )
+		self.assertIs( index.seen( unlearned ), b )
 
 	def test_index_killref( self ):
 		#TODO: simplify to the point
@@ -388,12 +347,9 @@ class Test_CA_Index( unittest.TestCase ):
 		r.append( 3 )
 		r.append( 4 )
 		r.append( 2 )
-		#print_state()
 		self.assertEqual( len(Rule.rules), 1 )
 		self.assertIs( Rule.rules[0], r )
 		self.assertEqual( r.walk(), [1,2,3,4,2] )
-		#print "1#######################"
-		#print_state()
 		r.append( 3 )
 		self.assertEqual( len(Rule.rules), 2 )
 		s = Rule.rules[1]
@@ -403,8 +359,6 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( len(s.refs), 2 )
 		self.assertTrue( r.guard.next.next in s.refs )
 		self.assertTrue( r.guard.next.next.next.next in s.refs )
-		#print "2#######################"
-		#print_state()
 		r.append( 1 )
 		self.assertEqual( r.dump(), [1,s,4,s,1] )
 		self.assertEqual( s.dump(), [2,3] )
@@ -412,8 +366,6 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( len(s.refs), 2 )
 		self.assertTrue( r.guard.next.next in s.refs )
 		self.assertTrue( r.guard.next.next.next.next in s.refs )
-		#print "3#######################"
-		#print_state()
 		r.append( 2 )
 		self.assertEqual( r.dump(), [1,s,4,s,1,2] )
 		self.assertEqual( s.dump(), [2,3] )
@@ -421,8 +373,6 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertEqual( len(s.refs), 2 )
 		self.assertTrue( r.guard.next.next in s.refs )
 		#elf.assertTrue( r.guard.next.next.next.next in s.refs )
-		#print "4#######################"
-		#print_state()
 		r.append( 3 )
 		#print_state()
 		#self.assertEqual( len(Rule.rules), 3 )
@@ -432,10 +382,7 @@ class Test_CA_Index( unittest.TestCase ):
 		#self.assertEqual( t.dump(), [1,2,3] )
 		#self.assertTrue( r.guard.next in t.refs )
 		#self.assertTrue( r.guard.next.next.next.next.next in t.refs )
-		#print "5#######################"
-		#print_state()
 		r.append( 4 )
-		#print_state()
 		self.assertEqual( r.walk(), [1, 2, 3, 4, 2, 3, 1, 2, 3, 4] )
 
 #########################################################################################
@@ -451,15 +398,105 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
-		self.s = Sequitur()
+		index.reset()
+		Rule.reset()
 
 	def test_sequitur_run( self ):
 		print
+		self.s = Sequitur()
 		data = list("abcdbcabcd")
 		for x in data:
 			self.s.append( x )
 			print self.s
 			print "--"
+
+	def test_sequitur_overlaping_left_issue( self ): 
+		# if on overlap you only learn the right-hand digram,
+		# the following situation as described in the comments will occurr
+		r = Rule()
+		r.append( 1 )
+		r.append( 2 )
+		a = r.append( 2 ) # 2,2 is learned
+		r.append( 2 ) # second 2,2 digram will not be learned because of overlap
+		r.append( 1 )
+		print_state()
+		embed()
+		r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
+		              # 2,2 unlearned because of broken connecttion (BUG), while S=r,2,2,r
+		self.assertIs( index.seen( a ), a )
+		r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
+		              # 2,2 is unlearned, but not in index, resulting in KeyError
+
+	def test_sequitur_other_overlaping_right_issue( self ): 
+		# for the same reason as above, the symmetric problem occurs if
+		# only the right-hand side of overlapping digrams is learned:
+		r = Rule()
+		r.append( 1 )
+		print_state()
+		r.append( 2 )
+		print_state()
+		r.append( 3 ) # 2,3 learned
+		print_state()
+		r.append( 2 )
+		print_state()
+		r.append( 2 ) # 2,2 learned
+		print_state()
+		r.append( 2 ) # overlapping 2,2 overrides previous
+		print_state()
+		r.append( 3 ) # 2,2 unlearned because of rule substitution, but still in index (BUG)
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 2 )
+		print_state()
+		r.append( 3 )
+		print_state()
+		r.append( 2 ) # crash with KeyError
+		print_state()
+
+	def test_overlapping_more( self ):
+		#aaaabaaaaaa
+		r = Rule()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		embed()
+		r.append( 1 )
+		print_state()
+		r.append( 2 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		r.append( 1 )
+		print_state()
+		embed()
+		r.append( 1 )
+		print_state()
+
+
+	# This test should be in TestRule, but the class has the
+	# Rule.makeunique trigger globally disabled
+	def test_sequitur_makeunique( self ):
+		r = Rule()
+		a = r.append( 1 )
+		b = r.append( 2 )
+		s = Rule()
+		c = s.append( 3 )
+		d = s.append( 1 )
+		e = s.append( 2 )
+		f = s.append( 4 )
+		self.assertEqual( s.dump(), [3,r,4] )
+		self.assertEqual( s.walk(), [3,1,2,4] )
+
 
 #########################################################################################
 if __name__ == '__main__':
