@@ -6,6 +6,12 @@ import logging as log
 log.basicConfig( level=log.DEBUG )
 from IPython import embed
 
+# global callback return variable
+cb = []
+def callback( *args, **kw ):
+	global cb
+	cb.append( ( args, kw ) )
+
 #########################################################################################
 class Test_AA_Symbol( unittest.TestCase ):
 
@@ -13,13 +19,9 @@ class Test_AA_Symbol( unittest.TestCase ):
 	def setUpClass( cls ):
 		log.basicConfig( level=log.DEBUG )
 		log.info( " ##### BEGIN %s ##############################################" % cls )
-		# temporarily disable makeunique to leftent failure on low-level linkage
-		cls.tmpmakeunique = Rule.makeunique
-		Rule.makeunique = Rule.makeunique_disabled
 
 	@classmethod
 	def tearDownClass( cls ):
-		Rule.makeunique = cls.tmpmakeunique
 		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
@@ -45,10 +47,7 @@ class Test_AA_Symbol( unittest.TestCase ):
 		self.assertTrue( b.is_connected() )
 
 	def test_symbol_is_guard( self ):
-		r = Rule()
-		g = r.guard
 		a = Symbol( 1 )
-		self.assertTrue( g.is_guard() )
 		self.assertFalse( a.is_guard() )
 
 	def test_symbol_linkage( self ):
@@ -85,39 +84,77 @@ class Test_AA_Symbol( unittest.TestCase ):
 		b.insertright( c )
 		c.insertright( d )
 		ret = b.replace_digram( e )
-		self.assertIs( ret.ref, e )
-		self.assertIs( a.r, ret )
-		self.assertIs( ret.r, d )
+		self.assertIs( ret, e )
 		self.assertIs( d.r, a )
 		self.assertIs( d.l, ret )
-		self.assertIs( ret.l, a )
 		self.assertIs( a.l, d )
 
-	def test_symbol_replace_symbol( self ):
+#########################################################################################
+class Test_BB_Ruleref( unittest.TestCase ):
+
+	@classmethod
+	def setUpClass( cls ):
+		log.basicConfig( level=log.ERROR )
+		log.info( " ##### BEGIN %s ##############################################" % cls )
+
+	@classmethod
+	def tearDownClass( cls ):
+		Rule.reset()
+		log.info( " ##### END %s ##############" % cls )
+
+	def setUp( self ):
+		index.reset()
+		Rule.reset()
+
+	def test_ruleref_instance( self ):
 		r = Rule()
-		a = r.append( 1 )
-		b = r.append( 2 )
-		c = r.append( 3 )
-		d = r.append( 4 )
+		a = Ruleref( r )
+		self.assertTrue( isinstance( a, Ruleref ) )
+		b = Ruleref( r, ruleref=False )
+		self.assertFalse( b in r.refs )
+
+	def test_ruleref_replace( self ):
+		r = Rule()
+		e = r.append( 2, learn=False )
+		f = r.append( 3, learn=False )
 		s = Rule()
-		e = s.append( 5 )
-		f = s.append( 6 )
-		tail, head = b.replace_symbol( s )
+		a = s.append( r, learn=False )
+		b = s.append( r, learn=False )
+		c = s.append( r, learn=False )
+		tail, head = a.replace()
 		self.assertIs( tail, e )
 		self.assertIs( head, f )
-		self.assertIs( r.guard.r, a )
-		self.assertIs( a.r, e )
-		self.assertIs( e.r, f )
-		self.assertIs( f.r, c )
-		self.assertIs( c.r, d )
-		self.assertIs( d.r, r.guard )
-		self.assertIs( r.guard.l, d )
-		self.assertIs( d.l, c )
-		self.assertIs( c.l, f )
-		self.assertIs( f.l, e )
-		self.assertIs( e.l, a )
-		self.assertIs( a.l, r.guard )
-		#TODO: test replacing right to guards
+		self.assertEqual( s.dump(), [2,3,r,r] )
+		#TODO: test overlap conditions
+
+	def test_ruleref_refs( self ):
+		r = Rule()
+		self.assertEqual( r.refcount(), 0 )
+		a = Ruleref( r )
+		self.assertEqual( r.refcount(), 1 )
+		self.assertTrue( a in r.refs )
+		b = Ruleref( r )
+		self.assertEqual( r.refcount(), 2 )
+		self.assertTrue( b in r.refs )
+		c = Ruleref( r )
+		self.assertEqual( r.refcount(), 3 )
+		self.assertTrue( c in r.refs )
+		b.delete() # triggers killref
+		self.assertEqual( r.refcount(), 2 )
+		self.assertTrue( a in r.refs )
+		self.assertFalse( b in r.refs )
+		self.assertTrue( c in r.refs )
+
+	def test_ruleref_delete( self ):
+		r = Rule()
+		a = r.append( 1, learn=False )
+		b = r.append( 2, learn=False )
+		s = Rule()
+		c = s.append( r, learn=False )
+		d = s.append( 3 )
+		e = Ruleref( r )
+		e.delete() # triggers killref
+		self.assertEqual( s.dump(), [1,2,3] )
 
 #########################################################################################
 class Test_BA_Rule( unittest.TestCase ):
@@ -126,13 +163,9 @@ class Test_BA_Rule( unittest.TestCase ):
 	def setUpClass( cls ):
 		log.basicConfig( level=log.ERROR )
 		log.info( " ##### BEGIN %s ##############################################" % cls )
-		# temporarily disable makeunique to leftent failure on low-level linkage
-		cls.tmpmakeunique = Rule.makeunique
-		Rule.makeunique = Rule.makeunique_disabled
 
 	@classmethod
 	def tearDownClass( cls ):
-		Rule.makeunique = cls.tmpmakeunique
 		Rule.reset()
 		log.info( " ##### END %s ##############" % cls )
 
@@ -143,76 +176,91 @@ class Test_BA_Rule( unittest.TestCase ):
 	def test_rule_instance( self ):
 		r = Rule()
 		self.assertTrue( isinstance( r, Rule ) )
-		self.assertTrue( r.is_empty )
+		self.assertTrue( r.is_empty() )
 		self.assertTrue( r.guard.is_guard() )
-		self.assertIs( r.guard.ref.ref, r )
+		self.assertIs( r.guard.ref, r )
 		self.assertIs( r.guard.r, r.guard )
 		self.assertIs( r.guard.l, r.guard )
 		self.assertEqual( r.refcount(), 0 )
+
+	def test_rule_rulemarker( self ):
+		#TODO
+		pass
 
 	def test_rule_delete( self ):
 		r = Rule()
 		r.delete()
 		r = Rule()
-		a = r.append( 1 )
-		#with self.assertRaises( RuleError ): r.delete()
+		a = r.append( 1, learn=False )
+		with self.assertRaises( RuleError ): r.delete()
 
 	def test_rule_append( self ):
 		r = Rule()
-		a = r.append( 1 )
-		self.assertTrue( r.guard.is_guard() )
-		self.assertTrue( isinstance( a, Symbol ) )
-		self.assertIs( r.guard.r, a )
-		self.assertIs( r.guard.r.r, r.guard )
-		self.assertIs( r.guard.l, a )
-		self.assertIs( r.guard.l.l, r.guard )
-		b = r.append( 2 )
-		self.assertIs( r.guard.r, a )
-		self.assertIs( r.guard.r.r, b )
-		self.assertIs( r.guard.r.r.r, r.guard )
-		self.assertIs( r.guard.l, b )
-		self.assertIs( r.guard.l.l, a )
-		self.assertIs( r.guard.l.l.l, r.guard )
+		a = r.append( 1, learn=False )
+		b = r.append( 2, learn=False )
+		self.assertEqual( r.guard.r.digram(), (a,b) )
+		self.assertEqual( a.digram(), (a,b) )
+		c = r.append( r, learn=False  )
+		self.assertIs( c.ref, r )
+		with self.assertRaises( SymbolError ): c.digram()
 
 	def test_rule_is_empty( self ):
 		r = Rule()
 		self.assertTrue( r.is_empty() )
-		r.append( 1 )
+		r.append( 1, learn=False )
 		self.assertFalse( r.is_empty() )
-
-	def test_rule_refcount( self ):
-		r = Rule()
-		self.assertEqual( r.refcount(), 0 )
-		a = Symbol( r )
-		self.assertEqual( r.refcount(), 1 )
-		b = Symbol( r )
-		self.assertEqual( r.refcount(), 2 )
-		c = Symbol( r )
-		self.assertEqual( r.refcount(), 3 )
-		b.delete()
-		self.assertEqual( r.refcount(), 2 )
 
 	def test_rule_each( self ):
 		r = Rule()
-		a = r.append( 1 )
-		b = r.append( 2 )
+		self.assertEqual( [ref for ref in r.each()], [] )
+		a = r.append( 1, learn=False )
+		b = r.append( 2, learn=False )
 		self.assertEqual( [ref for ref in r.each()], [1,2] )
 		self.assertEqual( [ref for ref in r.eachsymbol()], [a,b] )
 
 	def test_rule_walkdump( self ):
 		r = Rule()
-		r.append( 1 )
-		r.append( 2 )
+		r.append( 1, learn=False )
+		r.append( 2, learn=False )
 		s = Rule()
-		s.append( 3 )
-		s.append( r )
-		s.append( 4 )
+		s.append( 3, learn=False )
+		s.append( r, learn=False )
+		s.append( 4, learn=False )
 		self.assertEqual( r.dump(), [1, 2] )
 		self.assertEqual( r.walk(), [1, 2] )
 		self.assertEqual( s.dump(), [3, r, 4] )
 		self.assertEqual( s.walk(), [3, 1, 2, 4] )
 
 	def test_rule_replace_digram( self ):
+		global cb
+		r = Rule()
+		beginning = r.append( 1, learn=False )
+		r.append( 2, learn=False )
+		middle = r.append( 1, learn=False )
+		r.append( 2, learn=False )
+		end = r.append( 1, learn=False )
+		r.append( 2, learn=False )
+		newmiddle    = r.replace_digram( middle, learn=False, forget=False )
+		newbeginning = r.replace_digram( beginning, learn=False, forget=False )
+		cb = []
+		newend       = r.replace_digram( end, learn=callback, forget=callback )
+		print '=================', cb
+		self.assertEqual( [s for s in r.eachsymbol()], [newbeginning, newmiddle, newend] ) 
+		self.assertEqual( r.dump(), [r,r,r] )
+		#TODO: test overlap conditions
+
+	def test_rule_dissolve( self ):
+		r = Rule()
+		r.append( 1, learn=False )
+		r.append( 2, learn=False )
+		s = Rule()
+		s.append( r, learn=False )
+		s.append( 1, learn=False )
+		
+		#TODO: test callbacks
+		#TODO: test overlap conditions
+
+	def test_rule_known_replace_digram_failmode( self ):
 		r = Rule()
 		r.append( 1 )
 		r.append( 2 )
@@ -241,7 +289,7 @@ class Test_BA_Rule( unittest.TestCase ):
 		self.assertTrue( fnew in r.refs )
 		#with self.assertRaises( SymbolError ): r.replace_digram( fnew )
 
-	def test_rule_replace_lastref( self ):
+	def _test_rule_dissolve_failmode( self ):
 		r = Rule()
 		r.append( 1 )
 		r.append( 2 )
@@ -254,9 +302,10 @@ class Test_BA_Rule( unittest.TestCase ):
 		self.assertTrue( ret in r.refs )
 		d = Symbol( r )
 		self.assertEqual( r.refcount(), 2 )
-		d.delete() # should trigger killref/replace_lastref/delete cascade
+		d.delete() # should trigger killref/dissolve/delete cascade
 		# CAVE: r is now an invalid rule
 		self.assertEqual( s.dump(), [3,1,2] )
+
 
 #########################################################################################
 class Test_CA_Index( unittest.TestCase ):
@@ -268,24 +317,25 @@ class Test_CA_Index( unittest.TestCase ):
 
 	@classmethod
 	def tearDownClass( cls ):
-		index.reset()
 		Rule.reset()
 		log.info( " ##### END %s ##############" % cls )
 
 	def setUp( self ):
+		#self.index = Index()
 		index.reset()
 		Rule.reset()
 
 	def test_index_instance( self ):
 		self.assertTrue( isinstance( index, Index ) )
+		self.assertEqual( len(index.dict), 0 )
 
 	def test_index_keys( self ):
 		# TODO: test with more datatypes
 		# TODO: test with rule references
 		index.reset()
-		r = Rule()
-		a = r.append( 1 )
-		b = r.append( 2 )
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		a.insertright( b )
 		self.assertEqual( index.key( a ), "1"+index.keyseparator+"2" )
 		index.reset( keyseparator="foo" )
 		self.assertEqual( index.key( a ), "1foo2" )
@@ -296,16 +346,12 @@ class Test_CA_Index( unittest.TestCase ):
 		#with self.assertRaises( SymbolError ): index.key( r.guard )
 
 	def test_index_learning( self ):
-		# temporarily disable makeunique to leftent failure on low-level linkage
-		tmpmakeunique = Rule.makeunique
-		Rule.makeunique = Rule.makeunique_disabled
 		# calls to learn() and forget() are implicit through symbol linkage/unlinkage
 		unlearned = Symbol( 1 )
 		unlearned.insertright( Symbol( 2 ) )
 		self.assertFalse( index.seen( unlearned ) )
 		a = Symbol( 1 )
-		b = Symbol( 2 )
-		a.insertright( b )
+		a.insertright( Symbol( 2 ) )
 		self.assertFalse( index.seen( unlearned ) )
 		index.learn( a )
 		self.assertTrue( index.seen( unlearned ) )
@@ -313,17 +359,7 @@ class Test_CA_Index( unittest.TestCase ):
 		self.assertTrue( index.seen( a ) )
 		index.forget( a )
 		self.assertFalse( index.seen( unlearned ) )
-
-		r = Rule()
-		c = r.append( 1 )
-		#with self.assertRaises( SymbolError ): index.seen( c.l ) # c.l is guard
-		#with self.assertRaises( SymbolError ): index.seen( c ) # c.r is guard
-		d = r.append( 1 )
-		self.assertFalse( index.seen( unlearned ) )
-		e = r.append( 2 )
-		self.assertTrue( index.seen( unlearned ) )
-
-		Rule.makeunique = tmpmakeunique
+		#TODO: test overlap conditions
 
 	def test_index_overlap( self ):
 		unlearned = Symbol( 1 )
@@ -339,51 +375,31 @@ class Test_CA_Index( unittest.TestCase ):
 		index.learn( b )
 		self.assertIs( index.seen( unlearned ), b )
 
-	def test_index_killref( self ):
-		#TODO: simplify to the point
-		r = Rule()
-		r.append( 1 )
-		r.append( 2 )
-		r.append( 3 )
-		r.append( 4 )
-		r.append( 2 )
-		self.assertEqual( len(Rule.rules), 1 )
-		self.assertIs( Rule.rules[0], r )
-		self.assertEqual( r.walk(), [1,2,3,4,2] )
-		r.append( 3 )
-		self.assertEqual( len(Rule.rules), 2 )
-		s = Rule.rules[1]
-		self.assertEqual( r.dump(), [1,s,4,s] )
-		self.assertEqual( s.dump(), [2,3] )
-		self.assertEqual( r.walk(), [1,2,3,4,2,3] )
-		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.r.r in s.refs )
-		self.assertTrue( r.guard.r.r.r.r in s.refs )
-		r.append( 1 )
-		self.assertEqual( r.dump(), [1,s,4,s,1] )
-		self.assertEqual( s.dump(), [2,3] )
-		self.assertEqual( r.walk(), [1,2,3,4,2,3,1] )
-		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.r.r in s.refs )
-		self.assertTrue( r.guard.r.r.r.r in s.refs )
-		r.append( 2 )
-		self.assertEqual( r.dump(), [1,s,4,s,1,2] )
-		self.assertEqual( s.dump(), [2,3] )
-		self.assertEqual( r.walk(), [1,2,3,4,2,3,1,2] )
-		self.assertEqual( len(s.refs), 2 )
-		self.assertTrue( r.guard.r.r in s.refs )
-		#elf.assertTrue( r.guard.r.r.r.r in s.refs )
-		r.append( 3 )
-		#print_state()
-		#self.assertEqual( len(Rule.rules), 3 )
+	def test_index_makeunique( self ):
+		global cb
+		a = Symbol( 1 )
+		b = Symbol( 2 )
+		c = Symbol( 1 )
+		d = Symbol( 2 )
+		a.insertright( b )
+		b.insertright( c )
+		c.insertright( d )
+		cb = []
+		index.learn( a, makeunique=callback )
+		self.assertEqual( len(cb), 0 )
+		index.learn( c, makeunique=callback )
+		self.assertEqual( len(cb), 1 )
+		args,kw = cb.pop()
+		self.assertEqual( args, (a,c) )
+
 		#self.assertFalse( 1 in Rule.rules )
 		#t = Rule.rules[2]
 		#self.assertEqual( r.dump(), [t,4,2,3,t] )
 		#self.assertEqual( t.dump(), [1,2,3] )
 		#self.assertTrue( r.guard.r in t.refs )
 		#self.assertTrue( r.guard.r.r.r.r.r in t.refs )
-		r.append( 4 )
-		self.assertEqual( r.walk(), [1, 2, 3, 4, 2, 3, 1, 2, 3, 4] )
+		#r.append( 4, learn=False )
+		#self.assertEqual( r.walk(), [1, 2, 3, 4, 2, 3, 1, 2, 3, 4] )
 
 #########################################################################################
 class Test_DA_Sequitur( unittest.TestCase ):
@@ -399,9 +415,14 @@ class Test_DA_Sequitur( unittest.TestCase ):
 
 	def setUp( self ):
 		index.reset()
+		Index.makeunique = Rule.makeunique
 		Rule.reset()
+		Rule.learn = index.learn
+		Rule.forget = index.forget
+		self.s = Sequitur()
+		
 
-	def test_sequitur_run( self ):
+	def _test_sequitur_run( self ):
 		print
 		self.s = Sequitur()
 		data = list("abcdbcabcd")
@@ -410,7 +431,19 @@ class Test_DA_Sequitur( unittest.TestCase ):
 			print self.s
 			print "--"
 
-	def test_sequitur_overlaping_left_issue( self ): 
+	def test_sequitur_makeunique( self ):
+		s = Sequitur()
+		a = r.append( 1 )
+		b = r.append( 2 )
+		s = Rule()
+		c = s.append( 3 )
+		d = s.append( 1 )
+		e = s.append( 2 )
+		f = s.append( 4 )
+		self.assertEqual( s.dump(), [3,r,4] )
+		self.assertEqual( s.walk(), [3,1,2,4] )
+
+	def _test_sequitur_overlaping_left_issue( self ): 
 		# if on overlap you only learn the right-hand digram,
 		# the following situation as described in the comments will occurr
 		r = Rule()
@@ -427,7 +460,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
 		              # 2,2 is unlearned, but not in index, resulting in KeyError
 
-	def test_sequitur_other_overlaping_right_issue( self ): 
+	def _test_sequitur_other_overlaping_right_issue( self ): 
 		# for the same reason as above, the symmetric problem occurs if
 		# only the right-hand side of overlapping digrams is learned:
 		r = Rule()
@@ -454,7 +487,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		r.append( 2 ) # crash with KeyError
 		print_state()
 
-	def test_sequitur_overlapping_more( self ):
+	def _test_sequitur_overlapping_more( self ):
 		#aaaabaaaaaa
 		r = Rule()
 		r.append( 1 )
@@ -480,22 +513,6 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		embed()
 		r.append( 1 )
 		print_state()
-
-
-	# This test should be in TestRule, but the class has the
-	# Rule.makeunique trigger globally disabled
-	def test_sequitur_makeunique( self ):
-		r = Rule()
-		a = r.append( 1 )
-		b = r.append( 2 )
-		s = Rule()
-		c = s.append( 3 )
-		d = s.append( 1 )
-		e = s.append( 2 )
-		f = s.append( 4 )
-		self.assertEqual( s.dump(), [3,r,4] )
-		self.assertEqual( s.walk(), [3,1,2,4] )
-
 
 #########################################################################################
 if __name__ == '__main__':
