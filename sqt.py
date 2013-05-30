@@ -44,14 +44,15 @@ class Index( object ):
 		if digram.is_guard() or digram.next.is_guard(): return False
 		seenat = self.seen( digram )
 		if seenat:
-			overlap = seenat.next is digram
+			overlap = (seenat.next is digram) or (seenat.prev is digram)
 		 	if not overlap:
 				Rule.makeunique( seenat, digram )
 				return False
 			else: # if else branch runs, overlapping digrams are left-preferenced
 				# do not re-learn right-hand side
 				# error in Sequitur paper's pseudocode 
-				return False
+				raise RuleError( "learning threesome" )
+			#	return False
 		# actually learn
 		key = self.key( digram )
 		log.debug( " index learning %s at %s" % (str(key), digram.debugstr()) )
@@ -113,6 +114,10 @@ class Symbol( object ):
 				return True
 			else:
 				raise SymbolError( "%s has broken next/prev connection" % repr(self) )
+
+	def is_threesome( self ):
+		"""returns True if this symbol and both neighbors reference the same, else False."""
+		return self.ref == self.prev.ref and self.ref == self.next.ref
 
 	def is_guard( self ):
 		"""returns True if this symbol is a guard, else False."""
@@ -310,7 +315,7 @@ class Rule( object ):
 				result.append( ref )
 		return result
 
-	def append( self, newref ):
+	def append( self, newref, learn=True ):
 		"""wraps newref into symbol and appends it to this rule's head."""
 		newsymbol = Symbol( newref )
 		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
@@ -318,7 +323,7 @@ class Rule( object ):
 		# make new connection
 		head.insertnext( newsymbol )
 		# learn newly-formed digram
-		index.learn( head ) # might be guard
+		index.learn( head )
 		return newsymbol
 
 	def replace_digram( self, digram ):
@@ -328,8 +333,17 @@ class Rule( object ):
 		"""
 		# ensure rule utility
 		log.debug( " replacing digram at %s with rule %s" % (digram.debugstr(), self.debugstr()) )
+		index.forget( digram.prev )
+		index.forget( digram ) # else recursion on second rule append
+		index.forget( digram.next.next )
+		index.forget( digram.next )
+		# overlap corrections
+		if digram.next.next.is_threesome(): index.learn( digram.next.next )
+		if digram.prev.is_threesome(): index.learn( digram.prev.prev )
 		newsymbol = digram.replace_digram( self )
-		#learn new digrams
+		# learn new
+		index.learn( newsymbol )
+		index.learn( newsymbol.prev )
 		return newsymbol
 
 	def replace_lastref( self ):
@@ -342,16 +356,16 @@ class Rule( object ):
 		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
 		log.debug( " deleting rule %s with last reference %s" % (self.debugstr(), lastref.debugstr()) )
 		# forget broken digrams
-		index.forget( lastref.prev ) # lastref.prev might be guard
-		# only do the following if overlapping digram learning right-preference
-		#if (lastref.ref == lastref.prev.ref) and (lastref.ref == lastref.prev.prev.ref):
-		#	index.learn( lastref.prev.prev ) # special case overlapping digram
-		index.forget( lastref ) # lastref.next might be guard
-		# only do the following if overlapping digram learning left-preference
+		index.forget( lastref.prev )
+		index.forget( lastref )
+		# overlaps
+		if lastref.next.is_threesome(): index.learn( lastref.next )
+		if lastref.prev.is_threesome(): index.learn( lastref.prev.prev )
 		tail, head = lastref.replace_symbol( self )
 		# learn new digrams
-		index.learn( head ) # head.next might be guard
-		index.learn( tail.prev ) # might be guard
+		index.learn( tail.prev )
+		index.learn( head )
+		return tail, head
 
 	@classmethod
 	def makeunique( cls, oldmatch, newmatch ):
@@ -361,41 +375,23 @@ class Rule( object ):
 		   returns False on full rule match, else the newly-formed rule.
 		"""
 		log.debug( " makeunique with oldmatch %s and newmatch %s" % (oldmatch.debugstr(),newmatch.debugstr()) )
+
 		if oldmatch.prev.is_guard() and oldmatch.next.next.is_guard():
 			# full rule match, re-use existing rule
 			oldrule = oldmatch.prev.ref.ref
-			log.debug( " makeunique with full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
-			index.forget( newmatch.prev )
-			index.forget( newmatch )
-			if (newmatch.ref == newmatch.next.ref) and (newmatch.ref == newmatch.next.next.ref):
-				index.learn( newmatch.next )  # special case overlapping digram
+			log.debug( " full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
 			newsymbol = oldrule.replace_digram( newmatch )
-			index.learn( newsymbol ) # next might be a guard
-			index.learn( newsymbol.prev ) # might be a guard
+			return newsymbol
 
-			return False
 		else:
 			# create a new rule of the old digram
 			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.next) )
-			index.forget( oldmatch ) # else recursion on second rule append
-			# create new rule
 			newrule = Rule()
-			newrule.append( oldmatch.ref ) # .ref ensures that symbol copy is used for rule
-			newrule.append( oldmatch.next.ref )
-			# forget broken digrams
-			index.forget( oldmatch.prev )
-			index.forget( newmatch.prev )
-			index.forget( oldmatch.next )
-			index.forget( newmatch.next ) #TODO: ever not a guard next.next?
-			if (oldmatch.next.ref == oldmatch.next.next.ref) and (oldmatch.next.ref == oldmatch.next.next.next.ref):
-				index.learn( oldmatch.next.next ) # special case overlapping digram
-			# replace both instances with new rule
+			newrule.append( oldmatch.ref, learn=False ) # .ref ensures that symbol copy is used for rule
+			newrule.append( oldmatch.next.ref, learn=False )
 			oldsymbol = newrule.replace_digram( oldmatch )
 			newsymbol = newrule.replace_digram( newmatch )
-			index.learn( newsymbol ) # next might be a guard
-			index.learn( oldsymbol ) # next might be a guard
-			index.learn( newsymbol.prev ) # might be a guard
-			index.learn( oldsymbol.prev ) # might be a guard
+			index.learn( newrule.guard.next )
 			return newrule
 
 	@classmethod
