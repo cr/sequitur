@@ -52,9 +52,10 @@ class Symbol( object ):
 		"""returns True if this symbol and both neighbors reference the same, else False."""
 		return self.ref == self.l.ref and self.ref == self.r.ref
 
-	def insert( self, right, learn=False ):
+	def insert( self, right, learn=None ):
 		"""inserts symbol referenced by right right of this symbol."""
 		log.debug( " inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
+		if learn is None: learn = self.learn
 		if right.is_connected():
 			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(right)) )
 		oldright = self.r
@@ -77,7 +78,7 @@ class Symbol( object ):
 		l,r = self.digram()
 		return l.ref, r.ref
 
-	def replace_digram( self, symbol, learn=False, forget=False ):
+	def replace_digram( self, symbol, learn=None, forget=None ):
 		"""replaces this digram with new symbol referencing rule.
 		   implicitly increments rule reference.
 		   returns symbol from argument.
@@ -145,7 +146,7 @@ class Ruleref( Symbol ):
 		if killref: self.ref.killref( self )
 		super( Ruleref, self ).delete()
 
-	def replace( self, learn=False, forget=False ):
+	def replace( self, learn=None, forget=None ):
 		"""replaces this symbol by content of rule it refers.
 		   the rule is left properly emptied-out.
 		   triggers deletion of this ruleref symbol.
@@ -269,7 +270,7 @@ class Rule( object ):
 		cls.rulemarker = rulemarker
 		log.debug( " Rule reset" )
 
-	def __init__( self, digram=None, learn=False, forget=False ):
+	def __init__( self, digram=None ):
 		self.id = str(Rule.rulemarker) + str(Rule.nextid)
 		log.debug( " new rule %s with id %s" % (self.debugstr(),str(self.id)) )
 		Rule.nextid += 1
@@ -277,10 +278,10 @@ class Rule( object ):
 		self.guard = Guard( self )
 		Rule.rules[self.id] = self
 		if digram:
-			if forget: digram.forget( digram )
-			a,b=digram.refdigram()
-			self.append( a, learn=False )
-			self.append( b, learn=learn )
+			digram.forget( digram )
+			a,b = digram.refdigram()
+			self.append( a )
+			self.append( b )
 
 	def delete( self ):
 		"""removes this rule from rule index and frees references for garbage collector."""
@@ -358,24 +359,28 @@ class Rule( object ):
 				result.append( ref )
 		return result
 
-	def append( self, newref, learn=False ):
+	def append( self, newref ):
 		"""wraps newref into symbol and appends it to this rule's head."""
-		newsymbol = ###BROKEN?!
+		if isinstance( newref, Rule ):
+			newsymbol = Ruleref( newref )
+		else:
+			newsymbol = Symbol( newref )
 		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
-		head.insert( newsymbol, learn=learn )
+		head = self.guard.l
+		head.insert( newsymbol )
 		return newsymbol
 
-	def apply( self, digram, learn=False, forget=False ):
+	def apply( self, digram ):
 		"""replaces digram with reference to this rule.
 		   returns the newly-formed symbol.
 		   forgets broken and learns new digrams.
 		"""
 		# ensure rule utility
 		log.debug( " replacing digram at %s with reference to rule %s" % (digram.debugstr(), self.debugstr()) )
-		newsymbol = digram.replace_digram( Ruleref( self ), learn=learn, forget=forget )
+		newsymbol = digram.replace_digram( Ruleref( self ) )
 		return newsymbol
 
-	def dissolve( self, learn=False, forget=False ):
+	def dissolve( self ):
 		"""replaces last reference to this rule with the rule's content.
 		   leaves empty rule.
 	   	   forgets broken and learns new digrams.
@@ -384,11 +389,11 @@ class Rule( object ):
 		#	raise RuleError #TODO: nice message
 		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
 		log.debug( " dissolving rule %s into last reference %s" % (self.debugstr(), lastref.debugstr()) )
-		tail, head = lastref.replace( learn=learn, forget=forget )
+		tail, head = lastref.replace()
 		return tail, head
 
 	@classmethod
-	def makeunique( cls, oldmatch, newmatch, learn=False, forget=False ):
+	def makeunique( cls, oldmatch, newmatch ):
 		"""enforces digram uniqueness by replacing newmatch with rule reference.
 		   if oldmatch is a rule consisting only of that digram, else form new
 		   rule of oldmatch and newmatch and replace both with the new rule reference.
@@ -400,15 +405,15 @@ class Rule( object ):
 			# full rule match, re-use existing rule
 			oldrule = oldmatch.l.ref
 			log.debug( " full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
-			newsymbol = oldrule.apply( newmatch, learn=learn, forget=forget ) # newsymbol context collision down below?
+			newsymbol = oldrule.apply( newmatch ) # newsymbol context collision down below?
 			return newsymbol
 
 		else:
 			# create a new rule of the old digram
 			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.r) )
 			newrule = Rule( oldmatch )
-			newsymbol = newrule.apply( newmatch, learn=learn, forget=forget )
-			oldsymbol = newrule.apply( oldmatch, learn=learn, forget=forget )
+			newsymbol = newrule.apply( newmatch )
+			oldsymbol = newrule.apply( oldmatch )
 			return newrule
 
 	def debugstr( self ):
@@ -442,14 +447,14 @@ class Sequitur( object ):
 	def __init__( self ):
 		Index.makeunique = Rule.makeunique
 		self.index = Index()
+		Symbol.learn = self.index.learn
+		Symbol.forget = self.index.forget
 		Rule.reset()
-		Rule.learn = self.index.learn
-		Rule.forget = self.index.forget
 		self.S = Rule()
 
 	def append( self, symbol ):
 		"""append symbol to main rule S."""
-		self.S.append( symbol, learn=True )
+		self.S.append( symbol )
 
 	def walk( self ):
 		"""iterate over main rule S and recursively yield

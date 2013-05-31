@@ -116,12 +116,12 @@ class Test_BB_Ruleref( unittest.TestCase ):
 
 	def test_ruleref_replace( self ):
 		r = Rule()
-		e = r.append( 2, learn=False )
-		f = r.append( 3, learn=False )
+		e = r.append( 2 )
+		f = r.append( 3 )
 		s = Rule()
-		a = s.append( r, learn=False )
-		b = s.append( r, learn=False )
-		c = s.append( r, learn=False )
+		a = s.append( r )
+		b = s.append( r )
+		c = s.append( r )
 		tail, head = a.replace()
 		self.assertIs( tail, e )
 		self.assertIs( head, f )
@@ -148,10 +148,10 @@ class Test_BB_Ruleref( unittest.TestCase ):
 
 	def test_ruleref_delete( self ):
 		r = Rule()
-		a = r.append( 1, learn=False )
-		b = r.append( 2, learn=False )
+		a = r.append( 1 )
+		b = r.append( 2 )
 		s = Rule()
-		c = s.append( r, learn=False )
+		c = s.append( r )
 		d = s.append( 3 )
 		e = Ruleref( r )
 		e.delete() # triggers killref
@@ -191,41 +191,41 @@ class Test_BA_Rule( unittest.TestCase ):
 		r = Rule()
 		r.delete()
 		r = Rule()
-		a = r.append( 1, learn=False )
+		a = r.append( 1 )
 		with self.assertRaises( RuleError ): r.delete()
 
 	def test_rule_append( self ):
 		r = Rule()
-		a = r.append( 1, learn=False )
-		b = r.append( 2, learn=False )
+		a = r.append( 1 )
+		b = r.append( 2 )
 		self.assertEqual( r.guard.r.digram(), (a,b) )
 		self.assertEqual( a.digram(), (a,b) )
-		c = r.append( r, learn=False  )
+		c = r.append( r  )
 		self.assertIs( c.ref, r )
 		with self.assertRaises( SymbolError ): c.digram()
 
 	def test_rule_is_empty( self ):
 		r = Rule()
 		self.assertTrue( r.is_empty() )
-		r.append( 1, learn=False )
+		r.append( 1 )
 		self.assertFalse( r.is_empty() )
 
 	def test_rule_each( self ):
 		r = Rule()
 		self.assertEqual( [ref for ref in r.each()], [] )
-		a = r.append( 1, learn=False )
-		b = r.append( 2, learn=False )
+		a = r.append( 1 )
+		b = r.append( 2 )
 		self.assertEqual( [ref for ref in r.each()], [1,2] )
 		self.assertEqual( [ref for ref in r.eachsymbol()], [a,b] )
 
 	def test_rule_walkdump( self ):
 		r = Rule()
-		r.append( 1, learn=False )
-		r.append( 2, learn=False )
+		r.append( 1 )
+		r.append( 2 )
 		s = Rule()
-		s.append( 3, learn=False )
-		s.append( r, learn=False )
-		s.append( 4, learn=False )
+		s.append( 3 )
+		s.append( r )
+		s.append( 4 )
 		self.assertEqual( r.dump(), [1, 2] )
 		self.assertEqual( r.walk(), [1, 2] )
 		self.assertEqual( s.dump(), [3, r, 4] )
@@ -234,27 +234,26 @@ class Test_BA_Rule( unittest.TestCase ):
 	def test_rule_dissolve( self ):
 		global cb
 		r = Rule()
-		beginning = r.append( 1, learn=False )
-		r.append( 2, learn=False )
-		middle = r.append( 1, learn=False )
-		r.append( 2, learn=False )
-		end = r.append( 1, learn=False )
-		r.append( 2, learn=False )
-		newmiddle    = r.dissolve( middle, learn=False, forget=False )
-		newbeginning = r.dissolve( beginning, learn=False, forget=False )
-		cb = []
-		newend       = r.dissolve( end, learn=callback, forget=callback )
+		beginning = r.append( 1 )
+		r.append( 2 )
+		middle = r.append( 1 )
+		r.append( 2 )
+		end = r.append( 1 )
+		r.append( 2 )
+		newmiddle    = r.dissolve( middle, forget=False )
+		newbeginning = r.dissolve( beginning, forget=False )
+		newend       = r.dissolve( end )
 		self.assertEqual( [s for s in r.eachsymbol()], [newbeginning, newmiddle, newend] ) 
 		self.assertEqual( r.dump(), [r,r,r] )
 		#TODO: test overlap conditions
 
 	def test_rule_dissolve( self ):
 		r = Rule()
-		r.append( 1, learn=False )
-		r.append( 2, learn=False )
+		r.append( 1 )
+		r.append( 2 )
 		s = Rule()
-		s.append( r, learn=False )
-		s.append( 1, learn=False )
+		s.append( r )
+		s.append( 1 )
 		
 		#TODO: test callbacks
 		#TODO: test overlap conditions
@@ -400,7 +399,7 @@ class Test_CA_Index( unittest.TestCase ):
 		#self.assertEqual( t.dump(), [1,2,3] )
 		#self.assertTrue( r.guard.r in t.refs )
 		#self.assertTrue( r.guard.r.r.r.r.r in t.refs )
-		#r.append( 4, learn=False )
+		#r.append( 4 )
 		#self.assertEqual( r.walk(), [1, 2, 3, 4, 2, 3, 1, 2, 3, 4] )
 
 #########################################################################################
