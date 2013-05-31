@@ -12,6 +12,11 @@ class SymbolError( Exception ):
 class Symbol( object ):
 	"""A helper class to faciliate pointer arithmetics"""
 
+	# callback prototypes.
+	# can be modified class-wide, but only for new symbols
+	forget = ( lambda *args, **kw: log.debug( " DUMMY forget(%s,%s)", repr(args), repr(kw) ) )
+	learn = ( lambda *args, **kw: log.debug( " DUMMY learn(%s,%s)", repr(args), repr(kw) ) )
+
 	def __init__( self, reference ):
 		self.ref = reference
 		log.debug( " new symbol %s with reference to %s" % (self.debugstr(), str(reference)) )
@@ -47,7 +52,7 @@ class Symbol( object ):
 		"""returns True if this symbol and both neighbors reference the same, else False."""
 		return self.ref == self.l.ref and self.ref == self.r.ref
 
-	def insert( self, right ):
+	def insert( self, right, learn=False ):
 		"""inserts symbol referenced by right right of this symbol."""
 		log.debug( " inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
 		if right.is_connected():
@@ -57,6 +62,7 @@ class Symbol( object ):
 		right.r = oldright
 		self.r = right
 		right.l = self
+		if learn: learn( self )
 
 	def digram( self ):
 		"""returns this symbol and its right neighbor."""
@@ -71,15 +77,21 @@ class Symbol( object ):
 		l,r = self.digram()
 		return l.ref, r.ref
 
-	def replace_digram( self, symbol ):
+	def replace_digram( self, symbol, learn=False, forget=False ):
 		"""replaces this digram with new symbol referencing rule.
 		   implicitly increments rule reference.
 		   returns symbol from argument.
 		""" 
+		if learn is None: learn = self.learn
+		if forget is None: forget = self.forget
 		# ll<->l<->r<->rr
 		l,r = self.digram()
 		ll = l.l
 		rr = r.r
+		if forget:
+			forget( ll )
+			forget( l )
+			forget( r )
 		# new connections
 		rr.l = symbol
 		symbol.r = rr
@@ -92,6 +104,9 @@ class Symbol( object ):
 		r.l = r
 		r.r = r
 		r.delete()
+		if learn:
+			learn( symbol )
+			learn( ll )
 		return symbol
 
 	def debugstr( self ):
@@ -130,15 +145,20 @@ class Ruleref( Symbol ):
 		if killref: self.ref.killref( self )
 		super( Ruleref, self ).delete()
 
-	def replace( self ):
+	def replace( self, learn=False, forget=False ):
 		"""replaces this symbol by content of rule it refers.
 		   the rule is left properly emptied-out.
 		   triggers deletion of this ruleref symbol.
 		   returns tail and head of what was replaced.
 		"""
+		if learn is None: learn = self.learn
+		if forget is None: forget = self.forget
 		left = self.l
 		right = self.r
 		guard, tail, head = self.ref.nodes()
+		if forget:
+			forget( left )
+			forget( self )
 		# insert rule symbols)
 		right.l = head
 		head.r = right
@@ -150,6 +170,9 @@ class Ruleref( Symbol ):
 		self.l = self
 		self.r = self
 		self.delete() # will trigger rule deletion
+		if learn:
+			learn( head )
+			learn( left )
 		return tail, head
 
 class Index( object ):
@@ -235,8 +258,6 @@ class Rule( object ):
 	rules = {}
 	nextid = 0
 	rulemarker = "r"
-	forget = ( lambda *args, **kw: log.debug( " DUMMY forget(%s,%s)", repr(args), repr(kw) ) )
-	learn = ( lambda *args, **kw: log.debug( " DUMMY learn(%s,%s)", repr(args), repr(kw) ) )
 
 	@classmethod
 	def reset( cls, rulemarker='r' ):
@@ -248,13 +269,18 @@ class Rule( object ):
 		cls.rulemarker = rulemarker
 		log.debug( " Rule reset" )
 
-	def __init__( self ):
+	def __init__( self, digram=None, learn=False, forget=False ):
 		self.id = str(Rule.rulemarker) + str(Rule.nextid)
 		log.debug( " new rule %s with id %s" % (self.debugstr(),str(self.id)) )
 		Rule.nextid += 1
 		self.refs = set() # must be here before guard creation
 		self.guard = Guard( self )
 		Rule.rules[self.id] = self
+		if digram:
+			if forget: digram.forget( digram )
+			a,b=digram.refdigram()
+			self.append( a, learn=False )
+			self.append( b, learn=learn )
 
 	def delete( self ):
 		"""removes this rule from rule index and frees references for garbage collector."""
@@ -332,98 +358,57 @@ class Rule( object ):
 				result.append( ref )
 		return result
 
-	def append( self, newref, learn=None ):
+	def append( self, newref, learn=False ):
 		"""wraps newref into symbol and appends it to this rule's head."""
-		if learn is None: learn = self.learn
-		if isinstance( newref, Rule ):
-			newsymbol = Ruleref( newref )
-		else:
-			newsymbol = Symbol( newref )
+		newsymbol = ###BROKEN?!
 		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
-		head = self.guard.l
-		# make new connection
-		head.insert( newsymbol )
-		# learn newly-formed digram
-		if learn: learn( head )
+		head.insert( newsymbol, learn=learn )
 		return newsymbol
 
-	def apply( self, digram, learn=None, forget=None ):
+	def apply( self, digram, learn=False, forget=False ):
 		"""replaces digram with reference to this rule.
 		   returns the newly-formed symbol.
 		   forgets broken and learns new digrams.
 		"""
 		# ensure rule utility
-		if learn is None: learn = self.learn
-		if forget is None: forget = self.forget
 		log.debug( " replacing digram at %s with reference to rule %s" % (digram.debugstr(), self.debugstr()) )
-		if forget:
-			if digram.l.is_threesome(): forget( digram.l.l )
-			if digram.r.r.is_threesome(): forget( digram.r.r )
-			forget( digram.l )
-			forget( digram.r )
-		newsymbol = digram.replace_digram( Ruleref( self ) )
-		# learn new
-		if learn: # order of learning seems to matter
-			if newsymbol.r.is_threesome(): learn( newsymbol.r )
-			if newsymbol.l.is_threesome(): learn( newsymbol.l.l ) #might have become invalid
-			learn( newsymbol )
-			learn( newsymbol.l )
+		newsymbol = digram.replace_digram( Ruleref( self ), learn=learn, forget=forget )
 		return newsymbol
 
-	def dissolve( self, learn=None, forget=None ):
+	def dissolve( self, learn=False, forget=False ):
 		"""replaces last reference to this rule with the rule's content.
 		   leaves empty rule.
 	   	   forgets broken and learns new digrams.
 		"""
-		if learn is None: learn = self.learn
-		if forget is None: forget = self.forget
 		#if len( self.refs ) != 1:
 		#	raise RuleError #TODO: nice message
 		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
 		log.debug( " dissolving rule %s into last reference %s" % (self.debugstr(), lastref.debugstr()) )
-		if forget:
-			if lastref.l.is_threesome(): forget( lastref.l.l )
-			if lastref.r.is_threesome(): forget( lastref.r )
-			forget( lastref.l )
-			forget( lastref )
-		tail, head = lastref.replace()
-		# forget broken digrams
-		# overlaps
-		if learn:
-			if head.r.is_threesome(): learn( head.r )
-			if tail.l.is_threesome(): learn( tail.l.l )
-			learn( head )
-			learn( tail.l )
-		# learn new digrams
+		tail, head = lastref.replace( learn=learn, forget=forget )
 		return tail, head
 
 	@classmethod
-	def makeunique( cls, oldmatch, newmatch, learn=None, forget=None ):
+	def makeunique( cls, oldmatch, newmatch, learn=False, forget=False ):
 		"""enforces digram uniqueness by replacing newmatch with rule reference.
 		   if oldmatch is a rule consisting only of that digram, else form new
 		   rule of oldmatch and newmatch and replace both with the new rule reference.
 		   returns False on full rule match, else the newly-formed rule.
 		"""
-		if learn is None: learn = cls.learn
-		if forget is None: forget = cls.forget
 		log.debug( " makeunique with oldmatch %s and newmatch %s" % (oldmatch.debugstr(),newmatch.debugstr()) )
 
 		if oldmatch.l.is_guard() and oldmatch.r.r.is_guard():
 			# full rule match, re-use existing rule
 			oldrule = oldmatch.l.ref
 			log.debug( " full rule %s replacing %s" % (oldrule.debugstr(),newmatch.debugstr()) )
-			newsymbol = oldrule.apply( newmatch ) # newsymbol context collision down below?
+			newsymbol = oldrule.apply( newmatch, learn=learn, forget=forget ) # newsymbol context collision down below?
 			return newsymbol
 
 		else:
 			# create a new rule of the old digram
 			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.r) )
-			if forget: forget( oldmatch )
-			newrule = Rule()
-			newrule.append( oldmatch.ref, learn=False ) # .ref ensures that symbol copy is used for rule
-			newrule.append( oldmatch.r.ref )
-			newsymbol = newrule.apply( newmatch )
-			oldsymbol = newrule.apply( oldmatch )
+			newrule = Rule( oldmatch )
+			newsymbol = newrule.apply( newmatch, learn=learn, forget=forget )
+			oldsymbol = newrule.apply( oldmatch, learn=learn, forget=forget )
 			return newrule
 
 	def debugstr( self ):
@@ -464,7 +449,7 @@ class Sequitur( object ):
 
 	def append( self, symbol ):
 		"""append symbol to main rule S."""
-		self.S.append( symbol )
+		self.S.append( symbol, learn=True )
 
 	def walk( self ):
 		"""iterate over main rule S and recursively yield
