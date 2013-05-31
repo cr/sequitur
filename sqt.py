@@ -19,7 +19,7 @@ class Symbol( object ):
 
 	def __init__( self, reference ):
 		self.ref = reference
-		log.debug( " new symbol %s with reference to %s" % (self.debugstr(), str(reference)) )
+		log.debug( "     new symbol %s with reference to %s" % (self.debugstr(), str(reference)) )
 		self.l = self
 		self.r = self
 
@@ -28,7 +28,7 @@ class Symbol( object ):
 
 	def delete( self ):
 		"""frees up pointers to garbage collector."""
-		log.debug( " deleting symbol %s" % self.debugstr() )
+		log.debug( "     deleting symbol %s" % self.debugstr() )
 		if self.is_connected():
 			raise SymbolError( "connected %s cannot be deleted" % repr(self) )
 		del self.ref
@@ -54,7 +54,7 @@ class Symbol( object ):
 
 	def insert( self, right, learn=None ):
 		"""inserts symbol referenced by right right of this symbol."""
-		log.debug( " inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
+		log.debug( "     inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
 		if learn is None: learn = self.learn
 		if right.is_connected():
 			raise SymbolError( "%s cannot be connected to still-connected %s" % (repr(self),repr(right)) )
@@ -87,12 +87,15 @@ class Symbol( object ):
 		if forget is None: forget = self.forget
 		# ll<->l<->r<->rr
 		l,r = self.digram()
+		log.debug( "     replacing digram %s %s with reference to %s" % (l.debugstr(),r.debugstr(),symbol.debugstr()) )
 		ll = l.l
 		rr = r.r
 		if forget:
 			forget( ll )
 			forget( l )
 			forget( r )
+		llthreesome = ll.is_threesome()
+		rrthreesome = rr.is_threesome()
 		# new connections
 		rr.l = symbol
 		symbol.r = rr
@@ -106,8 +109,10 @@ class Symbol( object ):
 		r.r = r
 		r.delete()
 		if learn:
+			if rrthreesome: learn( rr )
 			learn( symbol )
 			learn( ll )
+			if llthreesome: learn( ll.l )
 		return symbol
 
 	def debugstr( self ):
@@ -152,6 +157,7 @@ class Ruleref( Symbol ):
 		   triggers deletion of this ruleref symbol.
 		   returns tail and head of what was replaced.
 		"""
+		log.debug( "     replacing symbol %s with rule content %s" % (self.debugstr(),self.ref.debugstr()) )
 		if learn is None: learn = self.learn
 		if forget is None: forget = self.forget
 		left = self.l
@@ -160,6 +166,9 @@ class Ruleref( Symbol ):
 		if forget:
 			forget( left )
 			forget( self )
+		#if learn:
+		#	if left.l.is_threesome(): learn( left.l.l )
+		#	if self.r.is_threesome(): learn( self.r )
 		# insert rule symbols)
 		right.l = head
 		head.r = right
@@ -204,7 +213,7 @@ class Index( object ):
 		key = self.key( digram )
 		try:
 			seenat = self.dict[key]
-			log.debug( " index has %s at %s" % (key, repr(seenat)) )
+			log.debug( "       index has %s at %s" % (key, repr(seenat)) )
 			return seenat
 		except KeyError: # not seen
 			return False
@@ -229,7 +238,7 @@ class Index( object ):
 				return False
 		# actually learn
 		key = self.key( digram )
-		log.debug( " index learning %s at %s" % (str(key), digram.debugstr()) )
+		log.debug( "       index learning %s at %s" % (str(key), digram.debugstr()) )
 		self.dict[key] = digram
 		return True
 
@@ -237,10 +246,10 @@ class Index( object ):
 		"""removes digram from the dictionary"""
 		if digram.is_guard() or digram.r.is_guard(): return False
 		key = self.key( digram )
-		log.debug( " index to forget '%s' at %s" % (str(key), digram.debugstr()) )
+		log.debug( "       index to forget '%s' at %s" % (str(key), digram.debugstr()) )
 		try:
-			if self.dict[key] == digram: del self.dict[key]
-			log.debug( " index forgetting %s" % key )
+			if self.dict[key] is digram: del self.dict[key]
+			log.debug( "       index forgetting %s" % key )
 		except KeyError:
 			raise KeyError( "key '%s' from digram %s not in index" % (str(key), repr(digram)) )
 		return True
@@ -272,7 +281,7 @@ class Rule( object ):
 
 	def __init__( self, digram=None ):
 		self.id = str(Rule.rulemarker) + str(Rule.nextid)
-		log.debug( " new rule %s with id %s" % (self.debugstr(),str(self.id)) )
+		log.debug( "   new rule %s with id %s" % (self.debugstr(),str(self.id)) )
 		Rule.nextid += 1
 		self.refs = set() # must be here before guard creation
 		self.guard = Guard( self )
@@ -310,7 +319,7 @@ class Rule( object ):
 
 	def addref( self, symbol ):
 		"""adds symbol to this rule's references set."""
-		log.debug( " adding rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+		log.debug( "   adding rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
 		self.refs.add( symbol )
 
 	def killref( self, symbol ):
@@ -318,7 +327,7 @@ class Rule( object ):
 		   triggers dissolve() if there is only one reference left.
 		   triggers this rule's deletion if there are no more references.
 		"""
-		log.debug( " killing rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
+		log.debug( "   killing rule reference to %s by %s" % (self.debugstr(), symbol.debugstr()) )
 		try:
 			self.refs.remove( symbol )
 		except KeyError:
@@ -365,7 +374,7 @@ class Rule( object ):
 			newsymbol = Ruleref( newref )
 		else:
 			newsymbol = Symbol( newref )
-		log.debug( " appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
+		log.debug( "   appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
 		head = self.guard.l
 		head.insert( newsymbol )
 		return newsymbol
@@ -376,7 +385,7 @@ class Rule( object ):
 		   forgets broken and learns new digrams.
 		"""
 		# ensure rule utility
-		log.debug( " replacing digram at %s with reference to rule %s" % (digram.debugstr(), self.debugstr()) )
+		log.debug( "   replacing digram at %s with reference to rule %s" % (digram.debugstr(), self.debugstr()) )
 		newsymbol = digram.replace_digram( Ruleref( self ) )
 		return newsymbol
 
@@ -388,7 +397,7 @@ class Rule( object ):
 		#if len( self.refs ) != 1:
 		#	raise RuleError #TODO: nice message
 		lastref = self.refs.copy().pop() # deleted via following symbol deletion trigger
-		log.debug( " dissolving rule %s into last reference %s" % (self.debugstr(), lastref.debugstr()) )
+		log.debug( "   dissolving rule %s into last reference %s" % (self.debugstr(), lastref.debugstr()) )
 		tail, head = lastref.replace()
 		return tail, head
 
@@ -412,8 +421,8 @@ class Rule( object ):
 			# create a new rule of the old digram
 			log.debug( " makeunique creating new rule from %s and %s" % (oldmatch, oldmatch.r) )
 			newrule = Rule( oldmatch )
+			oldsymbol = newrule.apply( oldmatch ) # BUG: might go into learn/apply recursion
 			newsymbol = newrule.apply( newmatch )
-			oldsymbol = newrule.apply( oldmatch )
 			return newrule
 
 	def debugstr( self ):
