@@ -254,8 +254,6 @@ class Test_BA_Rule( unittest.TestCase ):
 		s = Rule()
 		s.append( r )
 		s.append( 1 )
-		
-		#TODO: test callbacks
 		#TODO: test overlap conditions
 
 	def _test_rule_known_dissolve_failmode( self ):
@@ -430,84 +428,50 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		self.assertEqual( C.dump(), ['a',A,'d'] )
 		self.assertEqual( [x for x in self.s.walk()], data )
 
-	def _test_sequitur_makeunique( self ):
-		a = r.append( 1 )
-		b = r.append( 2 )
-		s = Rule()
-		c = s.append( 3 )
-		d = s.append( 1 )
-		e = s.append( 2 )
-		f = s.append( 4 )
-		self.assertEqual( self.s.dump(), [3,r,4] )
-		self.assertEqual( self.s.walk(), [3,1,2,4] )
-
-	def test_sequitur_overlaping_left_issue( self ): 
+	def test_sequitur_overlapping_left_issue( self ): 
 		# if on overlap you only learn the right-hand digram,
 		# the following situation as described in the comments will occurr
-		r = Rule()
-		r.append( 1 )
-		r.append( 2 )
-		a = r.append( 2 ) # 2,2 is learned
-		r.append( 2 ) # second 2,2 digram will not be learned because of overlap
-		r.append( 1 )
-		#print_state( self.s.index )
+		#r = Rule()
+		#r.append( 1 )
+		#r.append( 2 )
+		#a = r.append( 2 ) # 2,2 is learned
+		#r.append( 2 ) # second 2,2 digram will not be learned because of overlap
+		#r.append( 1 )
 		#embed()
-		r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
-		              # 2,2 unlearned because of broken connecttion (BUG), while S=r,2,2,r
-		self.assertIs( self.s.index.seen( a ), a )
-		r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
-		              # 2,2 is unlearned, but not in index, resulting in KeyError
+		#r.append( 2 ) # 1,2 becomes new rule r, both instances are replaced
+		               # 2,2 unlearned because of broken connecttion (BUG), while S=r,2,2,r
+		#self.assertIs( self.s.index.seen( a ), a )
+		#r.append( 2 ) # the old and new r,2 is replaced by rule s, S=s,2,s
+		               # 2,2 is unlearned, but not in index, resulting in KeyError
+		data = list( "abbbabb" )
+		for x in data:
+			self.s.append( x )
+			#print_state( self.s.index )	
 
-	def test_sequitur_other_overlaping_right_issue( self ): 
+	def test_sequitur_overlapping_right_issue( self ): 
 		# for the same reason as above, the symmetric problem occurs if
 		# only the right-hand side of overlapping digrams is learned:
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 2 )
-		print_state( self.s.index )
-		self.s.append( 3 ) # 2,3 learned
-		print_state( self.s.index )
-		self.s.append( 2 )
-		print_state( self.s.index )
-		self.s.append( 2 ) # 2,2 learned
-		print_state( self.s.index )
-		self.s.append( 2 ) # overlapping 2,2 overrides leftious
-		print_state( self.s.index )
-		self.s.append( 3 ) # 2,2 unlearned because of rule substitution, but still in index (BUG)
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 2 )
-		print_state( self.s.index )
-		self.s.append( 3 )
-		print_state( self.s.index )
-		self.s.append( 2 ) # crash with KeyError
-		print_state( self.s.index )
+		#self.s.append( 1 )
+		#self.s.append( 2 )
+		#self.s.append( 3 ) # 2,3 learned
+		#self.s.append( 2 )
+		#self.s.append( 2 ) # 2,2 learned
+		#self.s.append( 2 ) # overlapping 2,2 overrides leftious
+		#self.s.append( 3 ) # 2,2 unlearned because of rule substitution, but still in index (BUG)
+		#self.s.append( 1 )
+		#self.s.append( 2 )
+		#self.s.append( 3 )
+		#self.s.append( 2 ) # crash with KeyError
+		data = list( "abcbbbcabcb" )
+		for x in data:
+			self.s.append( x )
+			print_state( self.s.index )
 
-	def test_sequitur_overlapping_more( self ):
-		#aaaabaaaaaa
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 2 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
-		self.s.append( 1 )
-		print_state( self.s.index )
+	def _test_sequitur_eternal_overlapping( self ):
+		data = list( "aaaabaaaaaa" )
+		for x in data:
+			self.s.append( x )
+			print_state( self.s.index )
 
 	def _test_sequitur_fuzz( self ):
 		def rndstring():
