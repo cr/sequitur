@@ -419,6 +419,7 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		data = list( "abcdbcabcd" )
 		for x in data:
 			self.s.append( x )
+			#print_state( self.s.index )
 		S = Rule.rules['r0']
 		A = Rule.rules['r1']
 		with self.assertRaises( KeyError ): B = Rule.rules['r2']
@@ -465,9 +466,9 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		data = list( "abcbbbcabcb" )
 		for x in data:
 			self.s.append( x )
-			print_state( self.s.index )
+			#print_state( self.s.index )
 
-	def _test_sequitur_eternal_overlapping( self ):
+	def test_sequitur_eternal_overlapping( self ):
 		data = list( "aaaabaaaaaa" )
 		for x in data:
 			self.s.append( x )
