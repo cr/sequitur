@@ -4,7 +4,7 @@ from sqt import *
 import random
 import unittest
 import logging as log
-log.basicConfig( level=log.DEBUG )
+log.basicConfig( level=log.WARNING )
 from IPython import embed
 
 
