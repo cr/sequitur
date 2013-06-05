@@ -15,7 +15,6 @@ class Symbol( object ):
 	# callback prototypes.
 	# can be modified class-wide, but only for new symbols
 	learn = ( lambda *args, **kw: log.debug( " DUMMY learn(%s,%s)", repr(args), repr(kw) ) )
-	update = ( lambda *args, **kw: log.debug( " DUMMY update(%s,%s)", repr(args), repr(kw) ) )
 	forget = ( lambda *args, **kw: log.debug( " DUMMY forget(%s,%s)", repr(args), repr(kw) ) )
 
 	def __init__( self, reference ):
@@ -53,7 +52,7 @@ class Symbol( object ):
 		"""returns True if this symbol and both neighbors reference the same, else False."""
 		return self.ref == self.l.ref and self.ref == self.r.ref
 
-	def insert( self, right, learn=None ):
+	def insert( self, right, learn=None, makeunique=None ):
 		"""inserts symbol referenced by right right of this symbol."""
 		log.debug( "     inserting %s right of %s" % (right.debugstr(),self.debugstr()) )
 		if learn is None: learn = self.learn
@@ -64,7 +63,7 @@ class Symbol( object ):
 		right.r = oldright
 		self.r = right
 		right.l = self
-		if learn: learn( self )
+		if learn: learn( self, makeunique=makeunique )
 
 	def digram( self ):
 		"""returns this symbol and its right neighbor."""
@@ -79,30 +78,28 @@ class Symbol( object ):
 		l,r = self.digram()
 		return l.ref, r.ref
 
-	def replace_digram( self, symbol, learn=None, forget=None, update=None ):
+	def replace_digram( self, symbol, learn=None, forget=None ):
 		"""replaces this digram with new symbol referencing rule.
 		   implicitly increments rule reference.
 		   returns symbol from argument.
 		""" 
 		if learn is None: learn = self.learn
 		if forget is None: forget = self.forget
-		if update is None: update = self.update
-		# ll<->l<->r<->rr
 		l,r = self.digram()
 		log.debug( "     replacing digram %s %s with reference to %s" % (l.debugstr(),r.debugstr(),symbol.debugstr()) )
 		ll = l.l
 		rr = r.r
+		# ll<->l<->r<->rr
 		if forget:
 			forget( ll )
 			forget( l )
 			forget( r )
-		#llthreesome = ll.is_threesome()
-		#rrthreesome = rr.is_threesome()
 		# new connections
 		rr.l = symbol
 		symbol.r = rr
 		symbol.l = ll
-		ll.r = symbol	
+		ll.r = symbol
+		# ll<->symbol<->rr
 		# disconnect and delete obsolete l and r
 		l.l = l
 		l.r = l
@@ -111,11 +108,8 @@ class Symbol( object ):
 		r.r = r
 		r.delete()
 		if learn:
-			#if rrthreesome: learn( rr )
-			update( rr ) # (potential) threesome correction
 			learn( symbol )
 			learn( ll )
-			#if llthreesome: learn( ll.l )
 		return symbol
 
 	def debugstr( self ):
@@ -134,7 +128,7 @@ class Guard( Symbol ):
 	def is_ruleref( self ): return False
 	def replace_digram( self, rule ): raise NotImplementedError
 	def digram( self ): raise SymbolError( "guard %s does not form a digram" % repr(self) )
-	def refdigram( self ): raise NotImplementedError
+	def refdigram( self ): raise SymbolError( "guard %s does not form a digram" % repr(self) )
 	def is_threesome( self ): return False
 
 class Ruleref( Symbol ):
@@ -154,7 +148,7 @@ class Ruleref( Symbol ):
 		if killref: self.ref.killref( self )
 		super( Ruleref, self ).delete()
 
-	def replace( self, learn=None, forget=None, update=None ):
+	def replace( self, learn=None, forget=None ):
 		"""replaces this symbol by content of rule it refers.
 		   the rule is left properly emptied-out.
 		   triggers deletion of this ruleref symbol.
@@ -163,21 +157,18 @@ class Ruleref( Symbol ):
 		log.debug( "     replacing symbol %s with rule content %s" % (self.debugstr(),self.ref.debugstr()) )
 		if learn is None: learn = self.learn
 		if forget is None: forget = self.forget
-		if update is None: update = self.update
-		left = self.l
-		right = self.r
+		ll = self.l
+		rr = self.r
 		guard, tail, head = self.ref.nodes()
+		# ll<->self<->rr
 		if forget:
-			forget( left )
+			forget( ll )
 			forget( self )
-		#if learn:
-		#	if left.l.is_threesome(): learn( left.l.l )
-		#	if self.r.is_threesome(): learn( self.r )
-		# insert rule symbols)
-		right.l = head
-		head.r = right
-		tail.l = left
-		left.r = tail
+		rr.l = head
+		head.r = rr
+		tail.l = ll
+		ll.r = tail
+		# ll<->tail<->...<->head<->rr
 		# diconnect rule and self
 		guard.l = guard
 		guard.r = guard
@@ -185,9 +176,8 @@ class Ruleref( Symbol ):
 		self.r = self
 		self.delete() # will trigger rule deletion
 		if learn:
-			update( right )
 			learn( head )
-			learn( left )
+			learn( ll )
 		return tail, head
 
 	def __str__( self ):
@@ -221,65 +211,48 @@ class Index( object ):
 		key = self.key( digram )
 		try:
 			seenat = self.dict[key]
-			log.debug( "       index has %s at %s" % (key, repr(seenat)) )
-			return seenat
 		except KeyError: # not seen
 			return False
+		log.debug( "       index has %s at %s" % (key, repr(seenat)) )
+		return seenat[0]
+
 
 	def learn( self, digram, makeunique=None ):
-		"""creates digram reference in the dictionary if digram is new.
+		"""creates digram reference in the dictionary.
 		   triggers makeunique() if digram was seen before and does not overlap.
 		"""
 		if makeunique is None: makeunique = self.makeunique
 		# If a digram contains a guard, return False
-		# Removes detection logic from Symbol class
-		if digram.is_guard() or digram.r.is_guard(): return False
-		seenat = self.seen( digram )
+		try:
+			seenat = self.seen( digram )
+		except SymbolError: # guard in digram
+			return False
+		# add to index
+		key = self.key( digram )
+		log.debug( "       index learning %s at %s" % (str(key), digram.debugstr()) )
+		try:
+			self.dict[key].append( digram )
+		except:
+			self.dict[key] = [digram]
 		if seenat:
 			overlap = (seenat.r is digram) or (seenat.l is digram)
 		 	if not overlap:
 				if makeunique: makeunique( seenat, digram )
 				return False
-			else:
-				#raise RuleError( "learning threesome" )
-				# do not learn right-hand threesome digrams
-				return False
-		# actually learn
-		key = self.key( digram )
-		log.debug( "       index learning %s at %s" % (str(key), digram.debugstr()) )
-		self.dict[key] = digram
-		return True
+		else:
+			return True
 
-	def update( self, digram ):
-		"""updates existing digram reference in the dictionary.
-		"""
-		log.debug( "       index updating %s" % (digram.debugstr()) )
-		try:
-			key = self.key( digram )
-		except: #SymbolError or NotImplementedError: # digram contains guard
-			return False
-		try:
-			olddigram = self.dict[key]
-			log.debug( "       index updating %s from %s to %s" % (str(key), olddigram.debugstr(), digram.debugstr()) )
-		except KeyError:
-			#raise KeyError( "key '%s' from digram %s not in index" % (str(key), repr(digram)) )			
-			log.debug( "       index updating non-existing %s to %s" % (str(key), digram.debugstr()) )
-			pass		
-		self.dict[key] = digram
 
 	def forget( self, digram ):
 		"""removes digram from the dictionary"""
 		try:
 			key = self.key( digram )
-		except: #SymbolError or NotImplementedError: # digram contains guard
+		except SymbolError: # digram contains guard
 			return False
-		log.debug( "       index to forget '%s' at %s" % (str(key), digram.debugstr()) )
-		try:
-			if self.dict[key] is digram:
-				del self.dict[key]
-				log.debug( "       index forgetting %s" % key )
-		except KeyError:
-			raise KeyError( "key '%s' from digram %s not in index" % (str(key), repr(digram)) )
+		log.debug( "       index to forgeting '%s' at %s" % (str(key), digram.debugstr()) )
+		self.dict[key].remove( digram )
+		#log.debug( "       index forgetting %s" % key )
+		if len( self.dict[key] ) == 0: del self.dict[key]
 		return True
 
 	def __str__( self ):
@@ -287,13 +260,14 @@ class Index( object ):
 
 
 class TrivialIndex( object ):
-	"""Class for slow lookups of digram occurrence in the Rule set"""
+	"""Class for slow lookups of digram occurrence directly in the Rule set"""
 
 	# callback for makeunique
 	makeunique = ( lambda *args, **kw: log.debug( " DUMMY makeunique(%s,%s)", repr(args), repr(kw) ) ) # ultimately Rule.makeunique
 
-	def __init__( self ):
-		pass
+	def __init__( self ): pass
+	def forget( self, digram ): pass
+	def __str__( self ): return "{TrivialIndex. See Rule set for index.}"
 
 	def seen( self, digram ):
 		"""returns symbol reference if digram is in rule set, else False"""
@@ -301,16 +275,16 @@ class TrivialIndex( object ):
 		for k in Rule.rules:
 			for symbol in Rule.rules[k].eachsymbol():
 				if symbol.refdigram() == digram:
-					return symbol 
+					return symbol
 		return False
 
 	def learn( self, digram, makeunique=None ):
 		"""triggers makeunique() if digram was seen before and does not overlap."""
 		if makeunique is None: makeunique = self.makeunique
-		# If a digram contains a guard, return False
-		# Removes detection logic from Symbol class
-		if digram.is_guard() or digram.r.is_guard(): return False
-		seenat = self.seen( digram )
+		try:
+			seenat = self.seen( digram )
+		except SymbolError: # guard in digram
+			return False
 		if seenat:
 			overlap = (seenat.r is digram) or (seenat.l is digram)
 		 	if not overlap:
@@ -321,18 +295,6 @@ class TrivialIndex( object ):
 				# do not learn right-hand threesome digrams
 				return False
 		return True
-
-	def update( self, digram ):
-		"""does nothing in TrivialIndex."""
-		pass
-
-	def forget( self, digram ):
-		"""does nothing in TrivialIndex."""
-		pass
-
-	def __str__( self ):
-		return "{TrivialIndex dummy}"
-
 
 class RuleError( Exception ):
 	pass
@@ -362,8 +324,8 @@ class Rule( object ):
 		Rule.rules[self.id] = self
 		if digram:
 			a,b = digram.refdigram()
-			self.append( a, learn=False )
-			self.append( b, update=True )
+			self.append( a, makeunique=False )
+			self.append( b, makeunique=False )
 
 	def delete( self ):
 		"""removes this rule from rule index and frees references for garbage collector."""
@@ -441,7 +403,7 @@ class Rule( object ):
 				result.append( ref )
 		return result
 
-	def append( self, newref, learn=True, update=False ):
+	def append( self, newref, makeunique=None ):
 		"""wraps newref into symbol and appends it to this rule's head."""
 		if isinstance( newref, Rule ):
 			newsymbol = Ruleref( newref )
@@ -449,13 +411,7 @@ class Rule( object ):
 			newsymbol = Symbol( newref )
 		log.debug( "   appending symbol %s to %s" % (newsymbol.debugstr(), self.debugstr()) )
 		head = self.guard.l
-		if update:
-				head.insert( newsymbol, learn=False )
-				head.update( newsymbol.l ) # explicit call to index.update
-		elif learn:
-				head.insert( newsymbol )
-		else:
-				head.insert( newsymbol, learn=False )
+		head.insert( newsymbol, makeunique=makeunique )
 		return newsymbol
 
 	def apply( self, digram ):
@@ -536,7 +492,6 @@ class Sequitur( object ):
 		Index.makeunique = Rule.makeunique
 		self.index = Index()
 		Symbol.learn = self.index.learn
-		Symbol.update = self.index.update
 		Symbol.forget = self.index.forget
 		Rule.reset()
 		self.S = Rule()

@@ -472,7 +472,13 @@ class Test_DA_Sequitur( unittest.TestCase ):
 		data = list( "aaaabaaaaaa" )
 		for x in data:
 			self.s.append( x )
-			print_state( self.s.index )
+			#print_state( self.s.index )
+
+	def test_sequitur_double_crash( self ):
+		data = list( "aabbaabb" )
+		for x in data:
+			self.s.append( x )
+			#print_state( self.s.index )
 
 	def _test_sequitur_fuzz( self ):
 		def rndstring():
