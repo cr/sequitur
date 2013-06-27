@@ -234,7 +234,7 @@ fn main() {
 	let r = Rule::new( 0 );
 	r.append( @"hello" );
 	r.append( @"sequitur" );
-	r.append( @"ä \\foo" );
+	r.append( @"ä \\foobar" );
 	r.append( @"\n" );
 	println( r.to_rule_str() );
 }
