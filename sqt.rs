@@ -37,6 +37,24 @@ impl Symbol {
 	fn to_str( &self ) -> ~str { self.get_ref().to_str() }
 	fn print( &self ) { print( self.to_str() ); }
 	fn println( &self ) { println( self.to_str() ); }
+	fn replace_digram( @mut self, rule: @mut Rule ) -> @mut Symbol { 
+		let newsymbol = @mut Symbol { left: None, right: None, ptr: None };
+		newsymbol.ptr = Some( @mut Nonterminal( rule ) );
+		let left = self.get_left();
+		let right = self.get_right();
+		let rightright = right.get_right();
+		rightright.left = Some( newsymbol );
+		newsymbol.right = Some( rightright );
+		newsymbol.left = Some( left );
+		left.right = Some( newsymbol );
+		self.left = None;
+		self.right = None;
+		self.ptr = None;
+		right.left = None;
+		right.right = None;
+		right.ptr = None;
+		return newsymbol;
+	}
 	fn dissolve( @mut self ) {
 		let rule = match self.get_ref() {
 			@Nonterminal( rule ) => rule,
@@ -53,15 +71,16 @@ impl Symbol {
 		self.left = None;
 		self.right = None;
 		self.ptr = None;
+		rule.del_ref( &self );
 	}
 }
 
-//impl Eq for Symbol {
-//	fn eq( &self, other: &@mut Symbol ) -> bool { core::managed::mut_ptr_eq( self, other ) }
-//	fn ne( &self, other: &@mut Symbol ) -> bool { ! core::managed::mut_ptr_eq( self, other ) }
-//}
+impl Eq for Symbol {
+	fn eq( &self, v2: &Symbol ) -> bool { core::ptr::ref_eq( self, v2 ) }
+	fn ne( &self, v2: &Symbol ) -> bool { !core::ptr::ref_eq( self, v2 ) }
+}
 
-struct Rule { id: uint, guard: @mut Symbol, refs: ~[@Symbol] }
+struct Rule { id: uint, guard: @mut Symbol, refs: ~[@mut Symbol] }
 
 impl Rule {
 	fn new( id: uint ) -> @mut Rule {
@@ -70,21 +89,53 @@ impl Rule {
 		guard.right = Some( guard );
 		let self = @mut Rule { id: id, guard: guard, refs: ~[] };
 		guard.ptr = Some( @mut Guard( self ) );
-		return self
+		return self;
 	}
 	fn get_guard( &self ) -> @mut Symbol { self.guard }
 	fn get_tail( &self ) -> @mut Symbol { self.guard.right.get() }
 	fn get_head( &self ) -> @mut Symbol { self.guard.left.get() }
 	fn get_id( &self ) -> uint { self.id }
 	fn append( &self, s: @str ) {
-		let symbol = @mut Symbol { left: None, right: None, ptr: Some( @mut Terminal( s ) ) };
+		let symbol = @mut Symbol { left: None, right: None, ptr: None };
+		symbol.ptr = Some( @mut Terminal( s ) );
 		let head = self.get_head();
 		head.insert_after( symbol );
 	}
+	fn apply( @mut self, symbol: @mut Symbol ) -> @mut Symbol {
+		let new = symbol.replace_digram( self );
+		self.add_ref( new );
+		return new;
+	}
+	fn delete( @mut self ) {
+		let lastref = self.refs.pop();
+		lastref.dissolve();
+		//assert!( self.refs.len() == 1 );
+		self.guard.left = None;
+		self.guard.right = None;
+		self.guard.ptr = None;
+		//remove from rule index
+	}
+	fn add_ref( @mut self, s: @mut Symbol ) {
+		self.refs.push( s );
+	}
+	fn del_ref( &mut self, s: &@mut Symbol ) {
+		println( fmt!( "delref len %d", self.refs.len() as int ) );
+		match self.refs.position_elem( s ) {
+			Some( position ) => { self.refs.swap_remove( position ); }
+			None =>	{ fail!( ~"del_ref() called for non-referencing symbol" ) }
+		}
+	}
+	fn refcount( &self ) -> uint { self.refs.len() }
 	fn to_str( &self ) -> ~str { ~"r" + uint::to_str( self.get_id() ) }
 	fn to_rule_str( &self ) -> ~str {
 		let mut res = self.to_str() + ~":";
-		for vec::each( self.to_vec() ) |s| { res += ~" " + s.to_str(); }
+		let mut esc = ~"";
+		for vec::each( self.to_vec() ) |s| {
+			esc = s.to_str();
+			esc = core::str::escape_default( esc );
+			esc = core::str::replace( esc, ~" ", ~"\\ " );
+			res += ~" " + esc;
+		}
 		res
 	}
 	fn to_vec( &self ) -> ~[@mut Symref] {
@@ -95,7 +146,8 @@ impl Rule {
 			let p = ptr.ptr.get();
 			match p {
 				@Guard( _rule ) => { return res; }
-				_ => { vec::push( &mut res, p ); }
+				//_ => { vec::push( &mut res, p ); }
+				_ => { res.push( p ); }
 			}
 			ptr = ptr.get_right();
 		}
@@ -129,12 +181,60 @@ fn test_rule_append() {
 	assert_eq!( r.to_rule_str(), ~"r23: 1 2 3" );
 }
 
+#[test]
+fn test_rule_apply() {
+	let r = @mut Rule::new( 0 );
+	r.append( @"1" );
+	r.append( @"2" );
+	r.append( @"1" );
+	r.append( @"2" );
+	let s = @mut Rule::new( 1 );
+	s.append( @"1" );
+	s.append( @"2" );
+	let a = r.get_tail();
+	let b = r.get_head().get_left();
+	assert_eq!( r.to_rule_str(), ~"r0: 1 2 1 2" );
+	assert_eq!( s.to_rule_str(), ~"r1: 1 2" );
+	let newa = s.apply( a );
+	assert!( core::managed::mut_ptr_eq( r.get_tail(), newa ) );
+	assert_eq!( r.to_rule_str(), ~"r0: r1 1 2" );
+	assert_eq!( s.to_rule_str(), ~"r1: 1 2" );	
+	let newb = s.apply( b );
+	assert!( core::managed::mut_ptr_eq( r.get_head(), newb ) );
+	assert_eq!( r.to_rule_str(), ~"r0: r1 r1" );
+	assert_eq!( s.to_rule_str(), ~"r1: 1 2" );
+}
+
+#[test]
+fn test_rule_ref() {
+	let r = @mut Rule::new( 0 );
+	r.append( @"1" );
+	r.append( @"2" );
+	r.append( @"1" );
+	r.append( @"2" );
+	let s = @mut Rule::new( 1 );
+	s.append( @"1" );
+	s.append( @"2" );
+	let a = r.get_tail();
+	let b = r.get_head().get_left();
+	println( fmt!( "%d", s.refcount() as int ) );
+	let newa = s.apply( a );
+	println( fmt!( "%d", s.refcount() as int ) );
+	let _newb = s.apply( b );
+	println( fmt!( "%d", s.refcount() as int ) );
+	newa.dissolve();
+	println( fmt!( "%d", s.refcount() as int ) );
+	s.delete();
+	println( fmt!( "%d", s.refcount() as int ) );
+}
+
 fn main() {
 //	let args = os::args();
 //	if args.len() < 1 { fail!( ~"Usage: sqt <file>" ); }
 	let r = Rule::new( 0 );
-	r.append( @"1" );
-	r.append( @"2" );
-	r.append( @"3" );
+	r.append( @"hello" );
+	r.append( @"sequitur" );
+	r.append( @"ä \\foo" );
+	r.append( @"\n" );
 	println( r.to_rule_str() );
 }
